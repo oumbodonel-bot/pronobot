@@ -19,7 +19,7 @@ import os
 import sys
 import json
 import logging
-from typing import Dict
+from typing import Dict, Optional
 from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
