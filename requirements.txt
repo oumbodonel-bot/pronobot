@@ -1,4 +1,4 @@
 python-telegram-bot==21.8
 httpx==0.27.0
-pip install psycopg2-binary==2.9.11
+psycopg2-binary==2.9.11
 python-dotenv==1.0.1
