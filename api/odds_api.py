@@ -21,9 +21,9 @@ SPORTS = [
     "soccer_france_ligue_one",
     "soccer_germany_bundesliga",
     "soccer_brazil_campeonato",
-    "soccer_usa_mls",
-    "soccer_uefa_champs_league",
-    "soccer_africa_cup_of_nations",
+    "soccer_finland_veikkausliiga",
+    "soccer_league_of_ireland",
+    "soccer_brazil_serie_b",
 ]
 
 
