@@ -429,14 +429,20 @@ def _format_prono(prono, lang: str, user_id: int, username: str) -> str:
     analysis = prono.get(f'analysis_{lang}') or prono.get('analysis_fr') or ""
     now = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
 
+    import json
+    if isinstance(analysis, str):
+        try:
+            analysis = json.loads(analysis)
+        except:
+            analysis = {}
     if isinstance(analysis, dict):
         analysis_text = analysis.get('analysis', '')
-        key_points = analysis.get('key_points', [])
-        verdict = analysis.get('verdict', '')
+        key_points    = analysis.get('key_points', [])
+        verdict       = analysis.get('verdict', '')
     else:
-        analysis_text = str(analysis)
-        key_points = []
-        verdict = ''
+        analysis_text = ''
+        key_points    = []
+        verdict       = ''
 
     if lang == 'fr':
         text = (
