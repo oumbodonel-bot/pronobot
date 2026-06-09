@@ -1,78 +1,114 @@
 """
-Football Data API - Stats reelles des equipes
-football-data.org (plan gratuit)
+API-Football (RapidAPI) - Stats reelles des equipes
+Remplace football-data.org (plan gratuit = 100 req/jour, pas de blocage 403)
 """
 import os
 import httpx
 import asyncio
 import logging
-from datetime import date
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-FOOTBALL_DATA_KEY  = os.getenv("FOOTBALL_DATA_API_KEY", "")
-FOOTBALL_DATA_BASE = "https://api.football-data.org/v4"
+API_FOOTBALL_KEY  = os.getenv("API_FOOTBALL_KEY", "")
+API_FOOTBALL_BASE = "https://api-football-v1.p.rapidapi.com/v3"
+
+HEADERS = {
+    "X-RapidAPI-Key":  API_FOOTBALL_KEY,
+    "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com",
+}
 
 _last_call = 0.0
 
 
-async def _call(endpoint: str) -> Optional[Dict]:
-    """Appel avec rate limiting (6s minimum entre requetes)."""
+async def _call(endpoint: str, params: dict) -> Optional[Dict]:
+    """Appel avec rate limiting (2s minimum entre requetes)."""
     global _last_call
     import time
     elapsed = time.time() - _last_call
-    if elapsed < 6.0:
-        await asyncio.sleep(6.0 - elapsed)
+    if elapsed < 2.0:
+        await asyncio.sleep(2.0 - elapsed)
     _last_call = time.time()
 
-    headers = {"X-Auth-Token": FOOTBALL_DATA_KEY}
-    url = f"{FOOTBALL_DATA_BASE}/{endpoint}"
-    async with httpx.AsyncClient(timeout=10) as client:
+    url = f"{API_FOOTBALL_BASE}/{endpoint}"
+    async with httpx.AsyncClient(timeout=15) as client:
         try:
-            r = await client.get(url, headers=headers)
+            r = await client.get(url, headers=HEADERS, params=params)
             if r.status_code == 200:
-                return r.json()
+                data = r.json()
+                results = data.get("response", [])
+                if results:
+                    return data
+                logger.warning(f"API-Football reponse vide: {endpoint} {params}")
             elif r.status_code == 429:
-                logger.warning("Rate limit football-data.org, attente 60s...")
-                await asyncio.sleep(60)
+                logger.warning("Rate limit API-Football, attente 30s...")
+                await asyncio.sleep(30)
             else:
-                logger.warning(f"football-data {r.status_code}: {endpoint}")
+                logger.warning(f"API-Football {r.status_code}: {endpoint}")
         except Exception as e:
-            logger.error(f"football-data error: {e}")
+            logger.error(f"API-Football error: {e}")
     return None
+
+
+async def get_team_id_by_name(team_name: str) -> Optional[int]:
+    """Cherche l'ID d'une equipe par son nom."""
+    if not API_FOOTBALL_KEY:
+        logger.error("API_FOOTBALL_KEY manquant!")
+        return None
+
+    data = await _call("teams", {"search": team_name})
+    if not data:
+        return None
+
+    teams = data.get("response", [])
+    if not teams:
+        return None
+
+    # Prendre le premier résultat le plus proche
+    return teams[0]["team"]["id"]
 
 
 async def get_team_form(team_id: int) -> Optional[Dict]:
     """
-    Retourne les vraies stats de l'equipe :
+    Retourne les vraies stats de l'equipe via API-Football :
     forme recente, buts marques/encaisses, xG approche
     """
-    if not team_id:
+    if not team_id or not API_FOOTBALL_KEY:
         return None
 
-    data = await _call(f"teams/{team_id}/matches?limit=10&status=FINISHED")
+    # Récupérer les 10 derniers matchs terminés
+    data = await _call("fixtures", {
+        "team":   team_id,
+        "last":   10,
+        "status": "FT",  # Full Time uniquement
+    })
+
     if not data:
         return None
 
-    matches = data.get("matches", [])
-    if not matches:
+    fixtures = data.get("response", [])
+    if not fixtures:
         return None
 
-    goals_scored    = []
-    goals_conceded  = []
-    form            = []
+    goals_scored   = []
+    goals_conceded = []
+    form           = []
 
-    for m in matches[-6:]:  # 6 derniers matchs
-        score = m.get("score", {}).get("fullTime", {})
-        hs    = score.get("home")
-        as_   = score.get("away")
-        if hs is None or as_ is None:
+    for fixture in fixtures[-6:]:  # 6 derniers matchs
+        teams = fixture.get("teams", {})
+        goals = fixture.get("goals", {})
+
+        is_home = teams.get("home", {}).get("id") == team_id
+
+        if is_home:
+            gs = goals.get("home")
+            gc = goals.get("away")
+        else:
+            gs = goals.get("away")
+            gc = goals.get("home")
+
+        if gs is None or gc is None:
             continue
-
-        is_home = m["homeTeam"]["id"] == team_id
-        gs  = hs if is_home else as_
-        gc  = as_ if is_home else hs
 
         goals_scored.append(gs)
         goals_conceded.append(gc)
@@ -101,12 +137,3 @@ async def get_team_form(team_id: int) -> Optional[Dict]:
         "form_score":   form_score,
         "xg":           round(avg_scored * 0.92, 2),
     }
-
-
-async def get_team_id_by_name(team_name: str) -> Optional[int]:
-    """Cherche l'ID d'une equipe par son nom."""
-    data = await _call(f"teams?name={team_name}")
-    if not data:
-        return None
-    teams = data.get("teams", [])
-    return teams[0]["id"] if teams else None
