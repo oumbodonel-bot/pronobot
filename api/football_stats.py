@@ -81,7 +81,7 @@ async def get_team_form(team_id: int) -> Optional[Dict]:
     current_year = date.today().year
     # En juin 2026, la saison en cours est 2026
     # Si on est avant juillet → saison N-1, sinon saison N
-    season = current_year if date.today().month >= 7 else current_year - 1
+    season = current_year 
 
     data = await _call("fixtures", {
         "team":   team_id,
