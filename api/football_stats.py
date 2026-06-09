@@ -73,17 +73,20 @@ async def get_team_id_by_name(team_name: str) -> Optional[int]:
     return teams[0]["team"]["id"]
 
 async def get_team_form(team_id: int) -> Optional[Dict]:
-    """
-    Retourne les vraies stats de l'equipe via API-Football :
-    forme recente, buts marques/encaisses, xG approche
-    """
     if not team_id or not API_FOOTBALL_KEY:
         return None
 
-    # Récupérer les 10 derniers matchs terminés
+    # OBLIGATOIRE : season est requis par l'API sinon réponse vide
+    from datetime import date
+    current_year = date.today().year
+    # En juin 2026, la saison en cours est 2026
+    # Si on est avant juillet → saison N-1, sinon saison N
+    season = current_year if date.today().month >= 7 else current_year - 1
+
     data = await _call("fixtures", {
         "team":   team_id,
         "last":   10,
+        "season": season,
     })
 
     if not data:
@@ -91,7 +94,19 @@ async def get_team_form(team_id: int) -> Optional[Dict]:
 
     fixtures = data.get("response", [])
     if not fixtures:
-        return None
+        # Essayer la saison précédente en fallback
+        data = await _call("fixtures", {
+            "team":   team_id,
+            "last":   10,
+            "season": season - 1,
+        })
+        if not data:
+            return None
+        fixtures = data.get("response", [])
+        if not fixtures:
+            return None
+
+    # ... reste du code identique
 
     goals_scored   = []
     goals_conceded = []
