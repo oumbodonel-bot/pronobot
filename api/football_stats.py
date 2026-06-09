@@ -55,7 +55,14 @@ async def get_team_id_by_name(team_name: str) -> Optional[int]:
         logger.error("API_FOOTBALL_KEY manquant!")
         return None
 
-    data = await _call("teams", {"search": team_name})
+    # Nettoyer le nom : enlever accents et prendre le premier mot
+    # Ex: "Cuiabá" → "Cuiaba", "Nautico PE" → "Nautico"
+    import unicodedata
+    clean = unicodedata.normalize("NFKD", team_name)
+    clean = "".join(c for c in clean if not unicodedata.combining(c))
+    search_name = clean.split()[0]
+
+    data = await _call("teams", {"search": search_name})
     if not data:
         return None
 
@@ -63,9 +70,7 @@ async def get_team_id_by_name(team_name: str) -> Optional[int]:
     if not teams:
         return None
 
-    # Prendre le premier résultat le plus proche
     return teams[0]["team"]["id"]
-
 
 async def get_team_form(team_id: int) -> Optional[Dict]:
     """
@@ -79,7 +84,6 @@ async def get_team_form(team_id: int) -> Optional[Dict]:
     data = await _call("fixtures", {
         "team":   team_id,
         "last":   10,
-        "status": "FT",  # Full Time uniquement
     })
 
     if not data:
