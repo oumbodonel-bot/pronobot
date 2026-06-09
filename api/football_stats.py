@@ -11,11 +11,10 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 API_FOOTBALL_KEY  = os.getenv("API_FOOTBALL_KEY", "")
-API_FOOTBALL_BASE = "https://api-football-v1.p.rapidapi.com/v3"
+API_FOOTBALL_BASE = "https://v3.football.api-sports.io"
 
 HEADERS = {
-    "X-RapidAPI-Key":  API_FOOTBALL_KEY,
-    "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com",
+    "x-apisports-key": API_FOOTBALL_KEY,
 }
 
 _last_call = 0.0
