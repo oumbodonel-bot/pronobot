@@ -5,6 +5,18 @@ Auteur: PronoBot Team
 
 import logging
 import os
+import threading
+from dashboard.app import app as flask_app
+
+def run_dashboard():
+    flask_app.run(host="0.0.0.0", port=8080)
+
+def main():
+    init_db()
+
+    # Lancer le dashboard en arrière-plan
+    thread = threading.Thread(target=run_dashboard, daemon=True)
+    thread.start()
 from handlers.stats import stats_public_handler, referral_handler, handle_referral_start
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
