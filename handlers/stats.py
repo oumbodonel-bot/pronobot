@@ -3,6 +3,7 @@ Handler /stats — Performance publique + Parrainage
 """
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
+from handlers.stats import handle_referral_start  
 from core.database import (
     get_user, get_performance_stats,
     get_user_by_referral, apply_referral_reward,
