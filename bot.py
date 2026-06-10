@@ -5,6 +5,7 @@ Auteur: PronoBot Team
 
 import logging
 import os
+from handlers.stats import stats_public_handler, referral_handler, handle_referral_start
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     MessageHandler, filters, ConversationHandler
@@ -54,6 +55,8 @@ def main():
     app.add_handler(CommandHandler("menu", menu_handler))
     app.add_handler(CommandHandler("admin", admin_handler))
     app.add_handler(CommandHandler("activate", activate_handler))
+    app.add_handler(CommandHandler("stats",    stats_public_handler))
+    app.add_handler(CommandHandler("referral", referral_handler))
 
     # ── Callbacks boutons ──
     app.add_handler(CallbackQueryHandler(language_handler, pattern="^lang_"))
@@ -69,6 +72,7 @@ def main():
     app.add_handler(CallbackQueryHandler(stats_handler, pattern="^admin_stats$"))
     app.add_handler(CallbackQueryHandler(broadcast_handler, pattern="^admin_broadcast$"))
     app.add_handler(CallbackQueryHandler(perf_stats_handler, pattern="^perf_stats$"))
+    app.add_handler(CallbackQueryHandler(stats_public_handler, pattern="^public_stats$"))
 
     logger.info("🤖 PronoBot démarré avec succès!")
     app.run_polling(drop_pending_updates=True)
