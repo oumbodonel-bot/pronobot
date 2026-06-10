@@ -167,6 +167,15 @@ def is_vip(user_id: int) -> bool:
     if user['plan'] in ('vip', 'basic') and user['plan_expires_at']:
         return user['plan_expires_at'] >= date.today()
     return False
+    
+def is_basic(user_id: int) -> bool:
+    """Basic = accès combiné uniquement, pas montante ni score exact."""
+    user = get_user(user_id)
+    if not user:
+        return False
+    if user['plan'] == 'basic' and user['plan_expires_at']:
+        return user['plan_expires_at'] >= date.today()
+    return False
 
 
 # ── PRONOS ──
