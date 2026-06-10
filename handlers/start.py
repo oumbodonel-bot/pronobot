@@ -61,8 +61,11 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _show_main_menu(query, lang: str):
-    vip = is_vip(query.from_user.id)
-    keyboard = _main_menu_keyboard(lang, vip)
+    from core.database import is_vip, is_basic
+    user_id = query.from_user.id
+    vip   = is_vip(user_id)
+    basic = is_basic(user_id)
+    keyboard = _main_menu_keyboard(lang, vip=vip, basic=basic)
     await query.edit_message_text(
         t("main_menu", lang),
         parse_mode=ParseMode.MARKDOWN,
