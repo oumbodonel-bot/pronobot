@@ -83,8 +83,8 @@ def main():
     app.add_handler(CallbackQueryHandler(check_payment_handler, pattern="^check_pay_"))
     app.add_handler(CallbackQueryHandler(stats_handler, pattern="^admin_stats$"))
     app.add_handler(CallbackQueryHandler(broadcast_handler, pattern="^admin_broadcast$"))
-    app.add_handler(CallbackQueryHandler(perf_stats_handler, pattern="^perf_stats$"))
-    app.add_handler(CallbackQueryHandler(stats_public_handler, pattern="^public_stats$"))
+   app.add_handler(CallbackQueryHandler(stats_public_handler, pattern="^public_stats$"))
+   app.add_handler(CallbackQueryHandler(referral_handler,     pattern="^referral$"))
 
     logger.info("🤖 PronoBot démarré avec succès!")
     app.run_polling(drop_pending_updates=True)
