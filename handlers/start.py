@@ -70,16 +70,18 @@ async def _show_main_menu(query, lang: str):
     )
 
 
-def _main_menu_keyboard(lang: str, vip: bool = False):
-    vip_badge = " 💎" if vip else " 🔒"
+def _main_menu_keyboard(lang: str, vip: bool = False, basic: bool = False):
+    vip_badge   = " 💎" if vip else " 🔒"
+    basic_badge = " 💛" if basic else " 🔒"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(t("btn_free_prono", lang), callback_data="free_prono")],
         [InlineKeyboardButton(t("btn_vip_pronos", lang) + vip_badge, callback_data="vip_pronos")],
         [
-            InlineKeyboardButton(t("btn_combined", lang)    + vip_badge, callback_data="combined"),
+            InlineKeyboardButton(t("btn_combined", lang) + basic_badge, callback_data="combined"),
             InlineKeyboardButton(t("btn_exact_score", lang) + vip_badge, callback_data="exact_score"),
         ],
         [InlineKeyboardButton(t("btn_montante", lang) + vip_badge, callback_data="montante")],
-        [InlineKeyboardButton(t("btn_stats", lang),     callback_data="perf_stats")],
+        [InlineKeyboardButton("📊 Nos Performances", callback_data="public_stats")],
+        [InlineKeyboardButton("🎁 Parrainer un ami",  callback_data="referral")],
         [InlineKeyboardButton(t("btn_subscribe", lang), callback_data="subscribe_plans")],
     ])
