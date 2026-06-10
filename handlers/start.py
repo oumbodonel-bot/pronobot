@@ -1,18 +1,23 @@
 """
 Handlers : /start, choix de langue, menu principal
 """
-
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
-
 from core.database import create_or_update_user, get_user, update_user_language, is_vip
+from handlers.stats import handle_referral_start
 from utils.texts import t
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     create_or_update_user(user.id, user.username or "", user.first_name or "")
+
+    # Détecter lien de parrainage ← DOIT ÊTRE DANS LA FONCTION
+    args = context.args
+    if args and args[0].startswith("ref_"):
+        ref_code = args[0].replace("ref_", "")
+        await handle_referral_start(user.id, ref_code, context)
 
     keyboard = InlineKeyboardMarkup([
         [
@@ -25,11 +30,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=keyboard
     )
-# Détecter lien de parrainage
-args = context.args
-if args and args[0].startswith("ref_"):
-    ref_code = args[0].replace("ref_", "")
-    await handle_referral_start(user.id, ref_code, context)
+
 
 async def language_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -75,10 +76,4 @@ def _main_menu_keyboard(lang: str, vip: bool = False):
         [InlineKeyboardButton(t("btn_free_prono", lang), callback_data="free_prono")],
         [InlineKeyboardButton(t("btn_vip_pronos", lang) + vip_badge, callback_data="vip_pronos")],
         [
-            InlineKeyboardButton(t("btn_combined", lang)    + vip_badge, callback_data="combined"),
-            InlineKeyboardButton(t("btn_exact_score", lang) + vip_badge, callback_data="exact_score"),
-        ],
-        [InlineKeyboardButton(t("btn_montante", lang) + vip_badge, callback_data="montante")],
-        [InlineKeyboardButton(t("btn_stats", lang),     callback_data="perf_stats")],
-        [InlineKeyboardButton(t("btn_subscribe", lang), callback_data="subscribe_plans")],
-    ])
+            InlineKeyboardButton(t("btn_combined",
