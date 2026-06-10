@@ -29,14 +29,19 @@ Ta mission : fournir des analyses chirurgicales pour maximiser le ROI de tes abo
    - /combine      : 3 matchs sélectionnés indépendamment. Cote totale finale entre [2.50 - 4.00].
    - /score_exact  : Modèle de Poisson + Dixon-Coles uniquement. Un seul score proposé, le plus probable.
 
-3. VALEUR (VALUE BET) : Un pari n'est VALIDE que si la probabilité statistique (xG/Poisson)
+3. VALEUR (VALUE BET) : Un pari n'est VALIDE que si la probabilité statistique (Poisson)
    dépasse la probabilité implicite de la cote bookmaker d'au moins +5%.
    Formule : prob_implicite = 1 / cote. Si prob_stat < prob_implicite + 0.05 -> REJETE.
 
 4. DONNÉES MANQUANTES :
    - Si les cotes bookmaker sont absentes -> décision = "REJETE", raison = "Données de cotes indisponibles".
-   - Si les stats récentes (forme, xG, H2H) sont absentes ou insuffisantes -> confiance <= 2.
+   - Si les stats réelles sont absentes -> confiance plafonnée à 2/4. Le pari reste validable sur value bet.
    - Ne jamais estimer, inventer ou extrapoler des statistiques manquantes.
+
+5. ABSENCE DE STATS : Les cotes bookmakers agrègent toute l'information du marché.
+   En l'absence de stats d'équipe, les cotes ET le modèle Poisson sont suffisants pour détecter un value bet.
+   Si Pinnacle disponible : un écart Pinnacle > marché est un signal value bet fort.
+   Confiance MAX = 2/4 sans stats réelles.
 
 --- FORMAT DE RÉPONSE (JSON PUR — AUCUN TEXTE AVANT OU APRÈS) ---
 {
@@ -47,8 +52,8 @@ Ta mission : fournir des analyses chirurgicales pour maximiser le ROI de tes abo
   "cote_choisie": <float>,
   "confiance": <Entier de 1 à 4>,
   "analyse": {
-    "fr": "Analyse technique concise (xG, forme, H2H, justification mathématique). Maximum 150 mots.",
-    "en": "Concise technical analysis (xG, form, H2H, mathematical reasoning). Max 150 words."
+    "fr": "Analyse technique concise (cotes, Poisson, value bet, justification). Maximum 150 mots.",
+    "en": "Concise technical analysis (odds, Poisson, value bet, reasoning). Max 150 words."
   },
   "points_cles": {
     "fr": ["Point clé 1", "Point clé 2", "Point clé 3"],
@@ -76,51 +81,49 @@ async def evaluate_match(
     odds_data:    Dict,
     math_results: Dict,
 ) -> Dict:
-    """
-    Claude evalue le match et decide seul.
-    Retourne le JSON de decision complet.
-    """
     if not ANTHROPIC_API_KEY:
         logger.error("ANTHROPIC_API_KEY manquant!")
         return {"decision": "REJETE", "raison_rejet": "API Claude non configuree"}
 
-    home_form = home_stats.get("form_string",  "N/A") if home_stats else "N/A"
-    away_form = away_stats.get("form_string",  "N/A") if away_stats else "N/A"
-    home_avg  = home_stats.get("avg_scored",   "?")   if home_stats else "?"
-    away_avg  = away_stats.get("avg_scored",   "?")   if away_stats else "?"
-    home_conc = home_stats.get("avg_conceded", "?")   if home_stats else "?"
-    away_conc = away_stats.get("avg_conceded", "?")   if away_stats else "?"
-    home_xg   = home_stats.get("xg",           "?")   if home_stats else "?"
-    away_xg   = away_stats.get("xg",           "?")   if away_stats else "?"
+    # Pinnacle disponible ?
+    has_pinnacle = odds_data.get("pinnacle_home") is not None
+    pinnacle_section = ""
+    if has_pinnacle:
+        pinnacle_section = f"""
+=== COTES PINNACLE (bookmaker sharp de référence) ===
+  Victoire {home_team} : {odds_data.get("pinnacle_home", "N/A")}
+  Match Nul            : {odds_data.get("pinnacle_draw", "N/A")}
+  Victoire {away_team} : {odds_data.get("pinnacle_away", "N/A")}
+  Over buts            : {odds_data.get("pinnacle_over", "N/A")}
+  Under buts           : {odds_data.get("pinnacle_under", "N/A")}
+  Écart Pinnacle/marché (domicile) : {odds_data.get("pinnacle_gap", "N/A")}
+⚠️ Un écart Pinnacle > marché = signal value bet fort.
+"""
 
     prompt = f"""Evalue ce match et decide si c'est un bon pari.
 
 === MATCH ===
 {home_team} vs {away_team}
 Competition : {league}
+Bookmakers disponibles : {odds_data.get("bookmaker_count", 0)} ({", ".join(odds_data.get("bookmaker_names", [])[:5])})
 
-=== STATISTIQUES REELLES ===
-Forme recente {home_team} : {home_form}
-Forme recente {away_team} : {away_form}
-Buts marques/match {home_team} : {home_avg}
-Buts marques/match {away_team} : {away_avg}
-Buts encaisses/match {home_team} : {home_conc}
-Buts encaisses/match {away_team} : {away_conc}
-xG {home_team} : {home_xg}
-xG {away_team} : {away_xg}
+=== NOTE IMPORTANTE ===
+Aucune statistique d'équipe disponible.
+Analyse basée sur : cotes bookmakers + modèle Poisson + {"cotes Pinnacle (sharp)" if has_pinnacle else "moyenne marché uniquement"}.
+Les cotes bookmakers agrègent l'information du marché et sont une source fiable de probabilités implicites.
+Confiance MAX = 2/4 dans ce contexte.
 
-=== MODELES MATHEMATIQUES (Poisson + Dixon-Coles) ===
+=== MODÈLES MATHÉMATIQUES (Poisson basé sur les cotes) ===
 Buts attendus {home_team} : {math_results.get("lambda_home", "?")}
 Buts attendus {away_team} : {math_results.get("lambda_away", "?")}
-Probabilite victoire {home_team} : {math_results.get("prob_home_win", "?")}%
-Probabilite match nul : {math_results.get("prob_draw", "?")}%
-Probabilite victoire {away_team} : {math_results.get("prob_away_win", "?")}%
-Over 2.5 buts : {math_results.get("prob_over25", "?")}%
+Probabilité victoire {home_team} : {math_results.get("prob_home_win", "?")}%
+Probabilité match nul           : {math_results.get("prob_draw", "?")}%
+Probabilité victoire {away_team} : {math_results.get("prob_away_win", "?")}%
+Over 2.5 buts  : {math_results.get("prob_over25", "?")}%
 Under 2.5 buts : {100 - math_results.get("prob_over25", 50) if math_results.get("prob_over25") else "?"}%
-BTTS (les deux marquent) : {math_results.get("prob_btts", "?")}%
 Score le plus probable : {math_results.get("best_score", "?")}
-
-=== COTES BOOKMAKERS (moyennes multi-bookmakers) ===
+{pinnacle_section}
+=== COTES MARCHÉ MOYEN (tous bookmakers) ===
 
 MARCHE 1X2 :
   Victoire {home_team} : {odds_data.get("odds_home", "N/A")}
@@ -137,10 +140,11 @@ MARCHE OVER/UNDER :
 
 === TA MISSION ===
 1. Applique la règle Value Bet : prob_stat doit dépasser (1 / cote) + 0.05
-2. Identifie le marché avec le meilleur Value Bet parmi les 3 marchés disponibles
-3. La cote finale choisie DOIT être entre 1.40 et 2.00
-4. Si aucune cote dans cette plage ou aucun value bet détecté -> REJETE
-5. Si les stats sont absentes ou insuffisantes -> confiance <= 2
+2. Si Pinnacle disponible : un écart Pinnacle > marché renforce le signal
+3. La cote finale DOIT être entre 1.40 et 2.00
+4. Si aucun value bet détecté -> REJETE
+5. Confiance MAX = 2/4 (pas de stats réelles disponibles)
+6. Si moins de 3 bookmakers disponibles -> REJETE (marché peu liquide)
 
 Reponds UNIQUEMENT en JSON pur (pas de markdown, pas de texte avant/apres)."""
 
@@ -164,7 +168,7 @@ Reponds UNIQUEMENT en JSON pur (pas de markdown, pas de texte avant/apres)."""
                 text = text.replace("```json", "").replace("```", "").strip()
                 result = json.loads(text)
 
-                # Adapter l'ancien format à la nouvelle structure imbriquée
+                # Rétrocompatibilité ancien format plat
                 if "analyse_fr" in result and "analyse" not in result:
                     result["analyse"] = {
                         "fr": result.pop("analyse_fr", ""),
