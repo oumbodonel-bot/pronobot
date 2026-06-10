@@ -325,3 +325,77 @@ def get_global_stats():
     cur.close()
     conn.close()
     return {'users': users, 'performance': perf}
+def get_performance_stats(days: int = 30):
+    """Stats de performance sur N jours pour /stats public."""
+    conn = get_conn()
+    cur  = conn.cursor()
+    cur.execute("""
+        SELECT
+            COUNT(*)                                          AS total,
+            SUM(CASE WHEN is_correct = TRUE  THEN 1 ELSE 0 END) AS correct,
+            SUM(CASE WHEN is_correct = FALSE THEN 1 ELSE 0 END) AS wrong,
+            ROUND(AVG(CASE WHEN is_correct = TRUE THEN odds ELSE 0 END)::numeric, 2) AS avg_win_odds
+        FROM pronos
+        WHERE match_date >= CURRENT_DATE - INTERVAL '%s days'
+          AND result IS NOT NULL
+          AND prono_type NOT IN ('combined', 'exact_score')
+    """, (days,))
+    stats = cur.fetchone()
+
+    # Streak actuel
+    cur.execute("""
+        SELECT is_correct FROM pronos
+        WHERE result IS NOT NULL
+          AND prono_type NOT IN ('combined', 'exact_score')
+        ORDER BY match_date DESC
+        LIMIT 20
+    """)
+    rows   = cur.fetchall()
+    streak = 0
+    if rows:
+        first = rows[0]["is_correct"]
+        for r in rows:
+            if r["is_correct"] == first:
+                streak += 1
+            else:
+                break
+
+    cur.close()
+    conn.close()
+    return {**dict(stats), "streak": streak, "streak_type": "✅" if (rows and rows[0]["is_correct"]) else "❌"}
+
+
+def get_user_by_referral(code: str):
+    conn = get_conn()
+    cur  = conn.cursor()
+    cur.execute("SELECT * FROM users WHERE referral_code = %s", (code,))
+    user = cur.fetchone()
+    cur.close()
+    conn.close()
+    return user
+
+
+def apply_referral_reward(referred_user_id: int, referrer_id: int):
+    """Donne 3 jours VIP au parrain."""
+    conn = get_conn()
+    cur  = conn.cursor()
+    from datetime import date, timedelta
+    cur.execute("""
+        UPDATE users SET referred_by = %s WHERE id = %s
+    """, (referrer_id, referred_user_id))
+
+    cur.execute("SELECT plan_expires_at, plan FROM users WHERE id = %s", (referrer_id,))
+    referrer = cur.fetchone()
+    today = date.today()
+
+    if referrer["plan"] == "vip" and referrer["plan_expires_at"] and referrer["plan_expires_at"] >= today:
+        new_expiry = referrer["plan_expires_at"] + timedelta(days=3)
+    else:
+        new_expiry = today + timedelta(days=3)
+
+    cur.execute("""
+        UPDATE users SET plan = 'vip', plan_expires_at = %s WHERE id = %s
+    """, (new_expiry, referrer_id))
+    conn.commit()
+    cur.close()
+    conn.close()
