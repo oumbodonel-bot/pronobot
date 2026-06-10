@@ -25,7 +25,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=keyboard
     )
-
+# Détecter lien de parrainage
+args = context.args
+if args and args[0].startswith("ref_"):
+    ref_code = args[0].replace("ref_", "")
+    await handle_referral_start(user.id, ref_code, context)
 
 async def language_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
