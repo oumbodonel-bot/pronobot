@@ -1,5 +1,7 @@
 """
 Handlers Pronostics - avec révélation 1h avant + watermark + anti-double
+Basic = prono gratuit + VIP pronos + combiné
+VIP   = tout (+ score exact + montante)
 """
 
 import logging
@@ -9,7 +11,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
 from core.database import (
-    get_user, is_vip,
+    get_user, is_vip, is_basic,
     get_today_pronos, get_prono_by_type,
     count_free_consultations_today, log_consultation,
     is_revealed, time_until_reveal, check_double_consultation
@@ -30,15 +32,19 @@ def _back_keyboard(lang: str):
     ]])
 
 
-def _upgrade_keyboard(lang: str):
+def _upgrade_keyboard(lang: str, target: str = "vip"):
+    """Clavier upgrade — target = 'vip' ou 'basic'"""
+    if target == "vip":
+        btn_text = "🚀 Passer VIP" if lang == 'fr' else "🚀 Upgrade to VIP"
+    else:
+        btn_text = "💛 Passer Basic ou VIP" if lang == 'fr' else "💛 Go Basic or VIP"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(t("upgrade_btn", lang), callback_data="subscribe_vip")],
+        [InlineKeyboardButton(btn_text, callback_data="subscribe_plans")],
         [InlineKeyboardButton(t("btn_back", lang), callback_data="menu")],
     ])
 
 
 def _timer_message(prono, lang: str) -> str:
-    """Message de compte à rebours avant révélation"""
     time_left = time_until_reveal(prono)
     if lang == 'fr':
         return (
@@ -67,7 +73,6 @@ def _timer_message(prono, lang: str) -> str:
 
 
 def _double_consult_warning(prono, lang: str, user_id: int, username: str) -> str:
-    """Avertissement double consultation"""
     now = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
     if lang == 'fr':
         return (
@@ -98,16 +103,16 @@ def _double_consult_warning(prono, lang: str, user_id: int, username: str) -> st
 async def free_prono_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    lang = _get_lang(user_id)
+    user_id  = query.from_user.id
+    lang     = _get_lang(user_id)
     username = query.from_user.username or "user"
 
-    if not is_vip(user_id):
+    if not is_vip(user_id) and not is_basic(user_id):
         count = count_free_consultations_today(user_id)
         if count >= 1:
             await query.edit_message_text(
                 t("limit_reached", lang),
-                reply_markup=_upgrade_keyboard(lang)
+                reply_markup=_upgrade_keyboard(lang, "basic")
             )
             return
 
@@ -121,7 +126,6 @@ async def free_prono_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # ── Vérification révélation 1h avant ──
     if not is_revealed(prono):
         await query.edit_message_text(
             _timer_message(prono, lang),
@@ -130,15 +134,12 @@ async def free_prono_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # ── Double consultation (watermark) ──
     already_seen = check_double_consultation(user_id, prono['id'])
-
     log_consultation(user_id, prono['id'])
     text = _format_prono(prono, lang, user_id, username)
 
     if already_seen:
-        warning = _double_consult_warning(prono, lang, user_id, username)
-        text = warning + "\n\n" + text
+        text = _double_consult_warning(prono, lang, user_id, username) + "\n\n" + text
 
     await query.edit_message_text(
         text,
@@ -148,19 +149,22 @@ async def free_prono_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # ════════════════════════════════════════════════════
-# PRONOS VIP (3-5 matchs)
+# PRONOS VIP (3-5 matchs) — accessible Basic ET VIP
 # ════════════════════════════════════════════════════
 
 async def vip_pronos_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    lang = _get_lang(user_id)
+    user_id  = query.from_user.id
+    lang     = _get_lang(user_id)
     username = query.from_user.username or "user"
 
-    if not is_vip(user_id):
+    if not is_vip(user_id) and not is_basic(user_id):
         await _show_vip_teaser(query, lang)
         return
+
+    # Basic = 3 pronos max, VIP = 5
+    max_pronos = 5 if is_vip(user_id) else 3
 
     await query.edit_message_text(t("loading", lang))
 
@@ -173,16 +177,15 @@ async def vip_pronos_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     messages = []
-    for i, prono in enumerate(pronos[:5], 1):
-        # Vérification révélation
+    for i, prono in enumerate(pronos[:max_pronos], 1):
         if not is_revealed(prono):
             timer = _timer_message(prono, lang)
-            messages.append(f"🔢 *PRONO {i}/{len(pronos[:5])}*\n\n" + timer)
+            messages.append(f"🔢 *PRONO {i}/{min(len(pronos), max_pronos)}*\n\n" + timer)
             continue
 
         already_seen = check_double_consultation(user_id, prono['id'])
         log_consultation(user_id, prono['id'])
-        text = f"🔢 *PRONO {i}/{len(pronos[:5])}*\n\n" + _format_prono(prono, lang, user_id, username)
+        text = f"🔢 *PRONO {i}/{min(len(pronos), max_pronos)}*\n\n" + _format_prono(prono, lang, user_id, username)
 
         if already_seen:
             text = _double_consult_warning(prono, lang, user_id, username) + "\n\n" + text
@@ -200,17 +203,17 @@ async def vip_pronos_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # ════════════════════════════════════════════════════
-# COMBINÉ DU JOUR
+# COMBINÉ DU JOUR — accessible Basic ET VIP
 # ════════════════════════════════════════════════════
 
 async def combined_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    lang = _get_lang(user_id)
+    user_id  = query.from_user.id
+    lang     = _get_lang(user_id)
     username = query.from_user.username or "user"
 
-    if not is_vip(user_id):
+    if not is_vip(user_id) and not is_basic(user_id):
         await _show_combined_teaser(query, lang)
         return
 
@@ -223,8 +226,6 @@ async def combined_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     selected = sorted(pronos, key=lambda x: x['confidence'], reverse=True)[:3]
 
-    # Révélation = 1h avant le PREMIER match du combiné
-    # (le match avec l'heure la plus tôt)
     first_unrevealed = next((p for p in selected if not is_revealed(p)), None)
     if first_unrevealed:
         await query.edit_message_text(
@@ -241,7 +242,7 @@ async def combined_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
 
     if lang == 'fr':
-        text = f"🎯 *COMBINÉ DU JOUR*\n\n"
+        text = "🎯 *COMBINÉ DU JOUR*\n\n"
         for p in selected:
             log_consultation(user_id, p['id'])
             text += f"✅ *{p['home_team']} vs {p['away_team']}*\n"
@@ -251,7 +252,7 @@ async def combined_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"🔒 _Combiné pour @{username} — ID:{user_id} — {now}_\n"
         text += f"⚠️ _Les paris comportent des risques._"
     else:
-        text = f"🎯 *DAILY COMBO*\n\n"
+        text = "🎯 *DAILY COMBO*\n\n"
         for p in selected:
             log_consultation(user_id, p['id'])
             text += f"✅ *{p['home_team']} vs {p['away_team']}*\n"
@@ -269,31 +270,35 @@ async def combined_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ════════════════════════════════════════════════════
-# SCORE EXACT
+# SCORE EXACT — VIP uniquement
 # ════════════════════════════════════════════════════
 
 async def exact_score_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    lang = _get_lang(user_id)
+    user_id  = query.from_user.id
+    lang     = _get_lang(user_id)
     username = query.from_user.username or "user"
 
     prono = get_prono_by_type("exact_score")
 
+    # Basic ET free → bloqué, VIP uniquement
     if not is_vip(user_id):
         if prono:
             teaser = t("teaser_exact_score", lang, home=prono['home_team'], away=prono['away_team'])
         else:
             teaser = t("teaser_exact_score", lang, home="Équipe A", away="Équipe B")
-        await query.edit_message_text(teaser, parse_mode=ParseMode.MARKDOWN, reply_markup=_upgrade_keyboard(lang))
+        await query.edit_message_text(
+            teaser,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=_upgrade_keyboard(lang, "vip")
+        )
         return
 
     if not prono:
         await query.edit_message_text(t("no_prono_today", lang), reply_markup=_back_keyboard(lang))
         return
 
-    # Vérification révélation
     if not is_revealed(prono):
         await query.edit_message_text(
             _timer_message(prono, lang),
@@ -330,206 +335,3 @@ async def exact_score_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     else:
         text = (
-            f"🎰 *EXACT SCORE OF THE DAY*\n\n"
-            f"⚽ *{prono['home_team']} vs {prono['away_team']}*\n"
-            f"🏆 {prono['league']}\n\n"
-        )
-        if prono.get('exact_score'):
-            import json
-            try:
-                scores = json.loads(prono['exact_score']) if isinstance(prono['exact_score'], str) else prono['exact_score']
-                text += "📊 *Top scores (Dixon-Coles)*:\n"
-                for s in scores[:5]:
-                    text += f"  • {s['score']} → {s['prob']}%\n"
-            except:
-                text += f"  • {prono['exact_score']}\n"
-        text += (
-            f"\n🎯 *Recommended score*: `{prono['prediction']}`\n"
-            f"⭐ Confidence: {stars_emoji(prono['confidence'])}\n\n"
-            f"🔒 _Generated for @{username} — ID:{user_id} — {now}_\n"
-            f"⚠️ _Betting involves risks._"
-        )
-
-    if already_seen:
-        text = _double_consult_warning(prono, lang, user_id, username) + "\n\n" + text
-
-    await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_back_keyboard(lang))
-
-
-# ════════════════════════════════════════════════════
-# MONTANTE
-# ════════════════════════════════════════════════════
-
-async def montante_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    lang = _get_lang(user_id)
-    username = query.from_user.username or "user"
-
-    if not is_vip(user_id):
-        if lang == 'fr':
-            teaser = (
-                "📈 *MONTANTE DU JOUR*\n\n"
-                "Notre algorithme a sélectionné une montante\n"
-                "de 4 matchs avec une cote combinée de ~*?.??*\n\n"
-                "┌─────────────────────────┐\n"
-                "│  Match 1 : 🔒 VIP       │\n"
-                "│  Match 2 : 🔒 VIP       │\n"
-                "│  Match 3 : 🔒 VIP       │\n"
-                "│  Match 4 : 🔒 VIP       │\n"
-                "└─────────────────────────┘\n\n"
-                "🔒 _Débloque la montante avec VIP_"
-            )
-        else:
-            teaser = (
-                "📈 *DAILY MONTANTE*\n\n"
-                "Our algorithm selected a montante\n"
-                "of 4 matches with combined odds ~*?.??*\n\n"
-                "┌─────────────────────────┐\n"
-                "│  Match 1: 🔒 VIP        │\n"
-                "│  Match 2: 🔒 VIP        │\n"
-                "│  Match 3: 🔒 VIP        │\n"
-                "│  Match 4: 🔒 VIP        │\n"
-                "└─────────────────────────┘\n\n"
-                "🔒 _Unlock with VIP_"
-            )
-        await query.edit_message_text(teaser, parse_mode=ParseMode.MARKDOWN, reply_markup=_upgrade_keyboard(lang))
-        return
-
-    prono = get_prono_by_type("montante")
-    if not prono:
-        await query.edit_message_text(t("no_prono_today", lang), reply_markup=_back_keyboard(lang))
-        return
-
-    if not is_revealed(prono):
-        await query.edit_message_text(
-            _timer_message(prono, lang),
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=_back_keyboard(lang)
-        )
-        return
-
-    already_seen = check_double_consultation(user_id, prono['id'])
-    log_consultation(user_id, prono['id'])
-    text = _format_prono(prono, lang, user_id, username)
-
-    if already_seen:
-        text = _double_consult_warning(prono, lang, user_id, username) + "\n\n" + text
-
-    await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_back_keyboard(lang))
-
-
-# ════════════════════════════════════════════════════
-# HELPERS
-# ════════════════════════════════════════════════════
-
-def _format_prono(prono, lang: str, user_id: int, username: str) -> str:
-    value_icon = "✅" if (prono.get('value_bet') or 0) > 0 else "⚠️"
-    analysis = prono.get(f'analysis_{lang}') or prono.get('analysis_fr') or ""
-    now = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
-
-    import json
-    if isinstance(analysis, str):
-        try:
-            analysis = json.loads(analysis)
-        except:
-            analysis = {}
-    if isinstance(analysis, dict):
-        analysis_text = analysis.get('analysis', '')
-        key_points    = analysis.get('key_points', [])
-        verdict       = analysis.get('verdict', '')
-    else:
-        analysis_text = ''
-        key_points    = []
-        verdict       = ''
-
-    if lang == 'fr':
-        text = (
-            f"⚽ *{prono['home_team']} vs {prono['away_team']}*\n"
-            f"🏆 {prono['league']}\n"
-            f"📅 {prono['match_date']}\n\n"
-            f"🎯 *PRONOSTIC* : `{prono['prediction']}`\n"
-            f"📈 Value Bet : {prono.get('value_bet') or '?'}% {value_icon}\n"
-            f"💰 Mise conseillée : {prono.get('kelly_stake') or 3}% de ta bankroll\n"
-            f"⭐ Confiance : {stars_emoji(prono['confidence'])}\n\n"
-        )
-        if analysis_text:
-            text += f"📝 *ANALYSE*\n{analysis_text}\n\n"
-        if key_points:
-            text += "🔑 *Points clés* :\n" + "\n".join(f"  • {p}" for p in key_points) + "\n\n"
-        if verdict:
-            text += f"✅ *Verdict* : {verdict}\n\n"
-        text += (
-            f"🔒 _@{username} — ID:{user_id} — {now}_\n"
-            f"⚠️ _Les paris comportent des risques._"
-        )
-    else:
-        text = (
-            f"⚽ *{prono['home_team']} vs {prono['away_team']}*\n"
-            f"🏆 {prono['league']}\n"
-            f"📅 {prono['match_date']}\n\n"
-            f"🎯 *PREDICTION*: `{prono['prediction']}`\n"
-            f"📈 Value Bet: {prono.get('value_bet') or '?'}% {value_icon}\n"
-            f"💰 Recommended stake: {prono.get('kelly_stake') or 3}% of bankroll\n"
-            f"⭐ Confidence: {stars_emoji(prono['confidence'])}\n\n"
-        )
-        if analysis_text:
-            text += f"📝 *ANALYSIS*\n{analysis_text}\n\n"
-        if key_points:
-            text += "🔑 *Key points*:\n" + "\n".join(f"  • {p}" for p in key_points) + "\n\n"
-        if verdict:
-            text += f"✅ *Verdict*: {verdict}\n\n"
-        text += (
-            f"🔒 _@{username} — ID:{user_id} — {now}_\n"
-            f"⚠️ _Betting involves risks._"
-        )
-    return text
-
-
-async def _show_vip_teaser(query, lang: str):
-    if lang == 'fr':
-        text = (
-            "💎 *PRONOS VIP DU JOUR*\n\n"
-            "Notre IA a analysé aujourd'hui :\n\n"
-            "🔒 Match 1 : Confiance ★★★★★ — VIP\n"
-            "🔒 Match 2 : Confiance ★★★★☆ — VIP\n"
-            "🔒 Match 3 : Confiance ★★★★☆ — VIP\n"
-            "🔒 Match 4 : Confiance ★★★☆☆ — VIP\n"
-            "🔒 Match 5 : Confiance ★★★★☆ — VIP\n\n"
-            "🚀 Passe VIP pour accéder à toutes les analyses!"
-        )
-    else:
-        text = (
-            "💎 *VIP PICKS OF THE DAY*\n\n"
-            "Our AI analyzed today:\n\n"
-            "🔒 Match 1: Confidence ★★★★★ — VIP\n"
-            "🔒 Match 2: Confidence ★★★★☆ — VIP\n"
-            "🔒 Match 3: Confidence ★★★★☆ — VIP\n"
-            "🔒 Match 4: Confidence ★★★☆☆ — VIP\n"
-            "🔒 Match 5: Confidence ★★★★☆ — VIP\n\n"
-            "🚀 Go VIP to access all analyses!"
-        )
-    await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_upgrade_keyboard(lang))
-
-
-async def _show_combined_teaser(query, lang: str):
-    if lang == 'fr':
-        text = (
-            "🎯 *COMBINÉ DU JOUR*\n\n"
-            "3 matchs sélectionnés par notre IA\n\n"
-            "🔒 Match A : ??? @ ?.??\n"
-            "🔒 Match B : ??? @ ?.??\n"
-            "🔒 Match C : ??? @ ?.??\n\n"
-            "🔒 _Débloque avec VIP_"
-        )
-    else:
-        text = (
-            "🎯 *DAILY COMBO*\n\n"
-            "3 matches selected by our AI\n\n"
-            "🔒 Match A: ??? @ ?.??\n"
-            "🔒 Match B: ??? @ ?.??\n"
-            "🔒 Match C: ??? @ ?.??\n\n"
-            "🔒 _Unlock with VIP_"
-        )
-    await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_upgrade_keyboard(lang))
