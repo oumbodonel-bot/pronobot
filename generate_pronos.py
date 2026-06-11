@@ -5,7 +5,7 @@ Generateur de Pronostics Quotidiens - VERSION CLAUDE JUDGE
 - football-data.org : vraies stats equipes
 - Claude : seul juge qui valide ou rejette chaque match
 - ZERO filtre rigide en amont
-- Regles fixes : cote 1.30-2.20, montante 1.20-1.50, combine max 3.00
+- Regles fixes : cote 1.40-2.00, montante 1.20-1.50, combine max 4.00
 """
 
 import asyncio
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 MAX_FREE_PRONOS = 1
 MAX_VIP_PRONOS  = 5
-COMBO_MAX_ODDS  = 3.00
+COMBO_MAX_ODDS  = 4.00
 COMBO_COUNT     = 3
 
 
@@ -118,10 +118,10 @@ async def process_match_with_claude(match: Dict) -> Optional[Dict]:
         logger.info(f"  REJETE par Claude : {raison}")
         return None
 
-    # Verifier que la cote choisie respecte les regles (1.30-2.20)
+    # Verifier que la cote choisie respecte les regles (1.40-2.00)
     cote = claude_result.get("cote_choisie")
-    if not cote or not (1.30 <= cote <= 2.20):
-        logger.info(f"  REJETE : cote {cote} hors plage 1.30-2.20")
+    if not cote or not (1.40 <= cote <= 2.00):
+        logger.info(f"  REJETE : cote {cote} hors plage 1.40-2.00")
         return None
 
     logger.info(f"  VALIDE : {claude_result.get('pronostic')} @ {cote} (confiance {claude_result.get('confiance')}/5)")
@@ -286,7 +286,7 @@ async def generate_daily_pronos():
         exact_done = True
 
     # ════════════════════════════════════════
-    # ETAPE 5 : Combine (3 matchs, max 3.00)
+    # ETAPE 5 : Combine (3 matchs, max 4.00)
     # ════════════════════════════════════════
     combo_done = False
     if len(vip_records) >= COMBO_COUNT:
