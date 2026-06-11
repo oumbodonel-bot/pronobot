@@ -2,13 +2,17 @@
 builder = "NIXPACKS"
 
 [build.nixpacksPlan.phases.setup]
-nixPkgs = ["python311", "zlib", "gcc", "postgresql"]
+# Ajout de python3-pip ici
+nixPkgs = ["python311", "python311Packages.pip", "zlib", "gcc", "postgresql"]
 
 [build.nixpacksPlan.phases.install]
 cmds = [
   "python3 -m pip install --upgrade pip",
-  "python3 -m pip install --user -r requirements.txt"
+  "python3 -m pip install -r requirements.txt"
 ]
+
+[deploy]
+startCommand = "python3 bot.py"
 
 [deploy]
 startCommand = "python bot.py"
