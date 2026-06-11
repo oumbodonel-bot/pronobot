@@ -1,19 +1,15 @@
 [build]
 builder = "NIXPACKS"
 
-# On indique à Nixpacks les packages nécessaires
 [build.nixpacksPlan.phases.setup]
-nixPkgs = ["python312", "python312Packages.pip", "zlib", "gcc", "postgresql"]
+nixPkgs = ["python311", "zlib", "gcc", "libpq"]
 
-# On installe les dépendances directement via pip
-# Nixpacks se chargera de rendre ces bibliothèques disponibles pour le système
 [build.nixpacksPlan.phases.install]
 cmds = [
   "python3 -m pip install --upgrade pip",
   "python3 -m pip install --no-cache-dir -r requirements.txt"
 ]
 
-# Pas besoin de "source venv/bin/activate" ici
 [deploy]
 startCommand = "python3 bot.py"
 restartPolicyType = "ON_FAILURE"
