@@ -82,7 +82,7 @@ def init_db():
 
         CREATE TABLE IF NOT EXISTS performance (
             id              SERIAL PRIMARY KEY,
-            period          DATE NOT NULL,
+            period          DATE NOT NULL UNIQUE,
             total_pronos    INTEGER DEFAULT 0,
             correct_pronos  INTEGER DEFAULT 0,
             win_rate        FLOAT DEFAULT 0,
@@ -94,10 +94,10 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_users_plan ON users(plan);
     """)
 
-    # Migration colonnes
     try:
         cur.execute("ALTER TABLE pronos ADD COLUMN IF NOT EXISTS match_time TIME")
         cur.execute("ALTER TABLE pronos ADD COLUMN IF NOT EXISTS revealed_at TIMESTAMPTZ")
+        cur.execute("ALTER TABLE performance ADD COLUMN IF NOT EXISTS period DATE UNIQUE")
     except Exception:
         pass
 
@@ -128,7 +128,7 @@ def create_or_update_user(user_id: int, username: str, first_name: str, language
         INSERT INTO users (id, username, first_name, language, referral_code)
         VALUES (%s, %s, %s, %s, %s)
         ON CONFLICT (id) DO UPDATE
-        SET username = EXCLUDED.username,
+        SET username   = EXCLUDED.username,
             first_name = EXCLUDED.first_name
         RETURNING *
     """, (user_id, username, first_name, language, referral))
@@ -164,12 +164,13 @@ def is_vip(user_id: int) -> bool:
     user = get_user(user_id)
     if not user:
         return False
-    if user['plan'] in ('vip', 'basic') and user['plan_expires_at']:
+    if user['plan'] == 'vip' and user['plan_expires_at']:
         return user['plan_expires_at'] >= date.today()
     return False
-    
+
+
 def is_basic(user_id: int) -> bool:
-    """Basic = accès combiné uniquement, pas montante ni score exact."""
+    """Basic = accès pronos + combiné, pas montante ni score exact."""
     user = get_user(user_id)
     if not user:
         return False
@@ -181,7 +182,6 @@ def is_basic(user_id: int) -> bool:
 # ── PRONOS ──
 
 def is_revealed(prono) -> bool:
-    """Vérifie si le prono peut être révélé (1h avant le match) — timezone-safe"""
     if not prono.get('revealed_at'):
         return True
     now = datetime.now(timezone.utc)
@@ -194,7 +194,6 @@ def is_revealed(prono) -> bool:
 
 
 def time_until_reveal(prono) -> str:
-    """Temps restant avant révélation — timezone-safe"""
     if not prono.get('revealed_at'):
         return None
     now = datetime.now(timezone.utc)
@@ -206,7 +205,7 @@ def time_until_reveal(prono) -> str:
     diff = revealed_at - now
     if diff.total_seconds() <= 0:
         return None
-    hours = int(diff.total_seconds() // 3600)
+    hours   = int(diff.total_seconds() // 3600)
     minutes = int((diff.total_seconds() % 3600) // 60)
     return f"{hours}h {minutes:02d}min"
 
@@ -319,7 +318,7 @@ def get_global_stats():
     cur.execute("""
         SELECT
             COUNT(*) as total_users,
-            SUM(CASE WHEN plan = 'vip' AND plan_expires_at >= CURRENT_DATE THEN 1 ELSE 0 END) as vip_users,
+            SUM(CASE WHEN plan = 'vip'   AND plan_expires_at >= CURRENT_DATE THEN 1 ELSE 0 END) as vip_users,
             SUM(CASE WHEN plan = 'basic' AND plan_expires_at >= CURRENT_DATE THEN 1 ELSE 0 END) as basic_users
         FROM users
     """)
@@ -334,24 +333,27 @@ def get_global_stats():
     cur.close()
     conn.close()
     return {'users': users, 'performance': perf}
+
+
 def get_performance_stats(days: int = 30):
     """Stats de performance sur N jours pour /stats public."""
     conn = get_conn()
     cur  = conn.cursor()
-    cur.execute("""
+
+    # ← FIX : interpolation directe dans la query, pas via %s pour INTERVAL
+    cur.execute(f"""
         SELECT
-            COUNT(*)                                          AS total,
+            COUNT(*)                                             AS total,
             SUM(CASE WHEN is_correct = TRUE  THEN 1 ELSE 0 END) AS correct,
             SUM(CASE WHEN is_correct = FALSE THEN 1 ELSE 0 END) AS wrong,
             ROUND(AVG(CASE WHEN is_correct = TRUE THEN odds ELSE 0 END)::numeric, 2) AS avg_win_odds
         FROM pronos
-        WHERE match_date >= CURRENT_DATE - INTERVAL '%s days'
+        WHERE match_date >= CURRENT_DATE - INTERVAL '{days} days'
           AND result IS NOT NULL
           AND prono_type NOT IN ('combined', 'exact_score')
-    """, (days,))
+    """)
     stats = cur.fetchone()
 
-    # Streak actuel
     cur.execute("""
         SELECT is_correct FROM pronos
         WHERE result IS NOT NULL
@@ -371,7 +373,11 @@ def get_performance_stats(days: int = 30):
 
     cur.close()
     conn.close()
-    return {**dict(stats), "streak": streak, "streak_type": "✅" if (rows and rows[0]["is_correct"]) else "❌"}
+    return {
+        **dict(stats),
+        "streak":      streak,
+        "streak_type": "✅" if (rows and rows[0]["is_correct"]) else "❌"
+    }
 
 
 def get_user_by_referral(code: str):
@@ -388,23 +394,21 @@ def apply_referral_reward(referred_user_id: int, referrer_id: int):
     """Donne 3 jours VIP au parrain."""
     conn = get_conn()
     cur  = conn.cursor()
-    from datetime import date, timedelta
-    cur.execute("""
-        UPDATE users SET referred_by = %s WHERE id = %s
-    """, (referrer_id, referred_user_id))
+
+    cur.execute("UPDATE users SET referred_by = %s WHERE id = %s",
+                (referrer_id, referred_user_id))
 
     cur.execute("SELECT plan_expires_at, plan FROM users WHERE id = %s", (referrer_id,))
     referrer = cur.fetchone()
-    today = date.today()
+    today    = date.today()
 
     if referrer["plan"] == "vip" and referrer["plan_expires_at"] and referrer["plan_expires_at"] >= today:
         new_expiry = referrer["plan_expires_at"] + timedelta(days=3)
     else:
         new_expiry = today + timedelta(days=3)
 
-    cur.execute("""
-        UPDATE users SET plan = 'vip', plan_expires_at = %s WHERE id = %s
-    """, (new_expiry, referrer_id))
+    cur.execute("UPDATE users SET plan = 'vip', plan_expires_at = %s WHERE id = %s",
+                (new_expiry, referrer_id))
     conn.commit()
     cur.close()
     conn.close()
