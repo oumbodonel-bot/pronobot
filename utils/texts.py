@@ -53,8 +53,8 @@ TEXTS = {
         "en": "🆓 *FREE*\n• 1 pick per day\n• Basic stats",
     },
     "plan_basic": {
-        "fr": "💛 *BASIC — 5.000 FCFA/mois*\n• 3 pronos/jour\n• Combiné du jour\n• Score exact",
-        "en": "💛 *BASIC — 5.000 FCFA/month*\n• 3 picks/day\n• Daily combo\n• Exact score",
+        "fr": "💛 *BASIC — 5.000 FCFA/mois*\n• 3 pronos/jour\n• Combiné du jour\n•",
+        "en": "💛 *BASIC — 5.000 FCFA/month*\n• 3 picks/day\n• Daily combo\n•",
     },
     "plan_vip": {
         "fr": (
