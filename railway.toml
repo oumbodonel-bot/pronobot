@@ -2,17 +2,23 @@
 builder = "NIXPACKS"
 
 [build.nixpacksPlan.phases.setup]
-nixPkgs = ["python311", "zlib"]
+nixPkgs = ["python311", "zlib", "gcc", "postgresql"]
+
+[build.nixpacksPlan.phases.install]
+cmds = [
+  "python -m pip install --upgrade pip",
+  "pip install -r requirements.txt"
+]
 
 [deploy]
-startCommand = "bash start.sh"
+startCommand = "python bot.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
 
 [[crons]]
 schedule = "0 9 * * *"
-command  = "python generate_pronos.py"
+command = "python generate_pronos.py"
 
 [[crons]]
 schedule = "0 11 * * *"
-command  = "python -c 'import asyncio; from api.check_results import update_results; asyncio.run(update_results())'"
+command = "python -c 'import asyncio; from api.check_results import update_results; asyncio.run(update_results())'"
