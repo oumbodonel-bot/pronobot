@@ -2,24 +2,26 @@
 builder = "NIXPACKS"
 
 [build.nixpacksPlan.phases.setup]
-nixPkgs = ["python311", "python311Packages.pip", "zlib", "gcc", "postgresql"]
+nixPkgs = ["python312", "python312Packages.pip", "zlib", "gcc", "postgresql"]
 
 [build.nixpacksPlan.phases.install]
 cmds = [
-  "python3 -m ensurepip --upgrade",
-  "python3 -m pip install --upgrade pip",
-  "python3 -m pip install -r requirements.txt"
+  "python3 -m venv venv",
+  "source venv/bin/activate",
+  "venv/bin/python -m pip install --upgrade pip",
+  "venv/bin/python -m pip install -r requirements.txt"
 ]
 
 [deploy]
-startCommand = "python3 bot.py"
+# On utilise explicitement le python du venv pour lancer le bot
+startCommand = "source venv/bin/activate && python bot.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
 
 [[crons]]
 schedule = "0 9 * * *"
-command = "python3 generate_pronos.py"
+command = "source venv/bin/activate && python generate_pronos.py"
 
 [[crons]]
 schedule = "0 11 * * *"
-command = "python3 -c 'import asyncio; from api.check_results import update_results; asyncio.run(update_results())'"
+command = "source venv/bin/activate && python -c 'import asyncio; from api.check_results import update_results; asyncio.run(update_results())'"
