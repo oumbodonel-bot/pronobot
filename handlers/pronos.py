@@ -335,3 +335,213 @@ async def exact_score_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     else:
         text = (
+            f"🎰 *EXACT SCORE OF THE DAY*\n\n"
+            f"⚽ *{prono['home_team']} vs {prono['away_team']}*\n"
+            f"🏆 {prono['league']}\n\n"
+        )
+        if prono.get('exact_score'):
+            import json
+            try:
+                scores = json.loads(prono['exact_score']) if isinstance(prono['exact_score'], str) else prono['exact_score']
+                text += "📊 *Top scores (Dixon-Coles)*:\n"
+                for s in scores[:5]:
+                    text += f"  • {s['score']} → {s['prob']}%\n"
+            except:
+                text += f"  • {prono['exact_score']}\n"
+        text += (
+            f"\n🎯 *Recommended score*: `{prono['prediction']}`\n"
+            f"⭐ Confidence: {stars_emoji(prono['confidence'])}\n\n"
+            f"🔒 _Generated for @{username} — ID:{user_id} — {now}_\n"
+            f"⚠️ _Betting involves risks._"
+        )
+
+    if already_seen:
+        text = _double_consult_warning(prono, lang, user_id, username) + "\n\n" + text
+
+    await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_back_keyboard(lang))
+
+
+# ════════════════════════════════════════════════════
+# MONTANTE — VIP uniquement
+# ════════════════════════════════════════════════════
+
+async def montante_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id  = query.from_user.id
+    lang     = _get_lang(user_id)
+    username = query.from_user.username or "user"
+
+    # Basic ET free → bloqué, VIP uniquement
+    if not is_vip(user_id):
+        if lang == 'fr':
+            teaser = (
+                "📈 *MONTANTE DU JOUR*\n\n"
+                "Notre algorithme a sélectionné une montante\n"
+                "avec une cote sécurisée entre 1.20 et 1.50\n\n"
+                "┌─────────────────────────┐\n"
+                "│  Match : 🔒 VIP only    │\n"
+                "│  Cote  : 🔒 VIP only    │\n"
+                "│  Mise  : 🔒 VIP only    │\n"
+                "└─────────────────────────┘\n\n"
+                "🔒 _Réservé aux membres VIP_"
+            )
+        else:
+            teaser = (
+                "📈 *DAILY MONTANTE*\n\n"
+                "Our algorithm selected a secure montante\n"
+                "with odds between 1.20 and 1.50\n\n"
+                "┌─────────────────────────┐\n"
+                "│  Match: 🔒 VIP only     │\n"
+                "│  Odds:  🔒 VIP only     │\n"
+                "│  Stake: 🔒 VIP only     │\n"
+                "└─────────────────────────┘\n\n"
+                "🔒 _Reserved for VIP members_"
+            )
+        await query.edit_message_text(
+            teaser,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=_upgrade_keyboard(lang, "vip")
+        )
+        return
+
+    prono = get_prono_by_type("montante")
+    if not prono:
+        await query.edit_message_text(t("no_prono_today", lang), reply_markup=_back_keyboard(lang))
+        return
+
+    if not is_revealed(prono):
+        await query.edit_message_text(
+            _timer_message(prono, lang),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=_back_keyboard(lang)
+        )
+        return
+
+    already_seen = check_double_consultation(user_id, prono['id'])
+    log_consultation(user_id, prono['id'])
+    text = _format_prono(prono, lang, user_id, username)
+
+    if already_seen:
+        text = _double_consult_warning(prono, lang, user_id, username) + "\n\n" + text
+
+    await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_back_keyboard(lang))
+
+
+# ════════════════════════════════════════════════════
+# HELPERS
+# ════════════════════════════════════════════════════
+
+def _format_prono(prono, lang: str, user_id: int, username: str) -> str:
+    value_icon = "✅" if (prono.get('value_bet') or 0) > 0 else "⚠️"
+    analysis   = prono.get(f'analysis_{lang}') or prono.get('analysis_fr') or ""
+    now        = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
+
+    import json
+    if isinstance(analysis, str):
+        try:
+            analysis = json.loads(analysis)
+        except:
+            analysis = {}
+    if isinstance(analysis, dict):
+        analysis_text = analysis.get('analysis', '')
+        key_points    = analysis.get('key_points', [])
+        verdict       = analysis.get('verdict', '')
+    else:
+        analysis_text = ''
+        key_points    = []
+        verdict       = ''
+
+    if lang == 'fr':
+        text = (
+            f"⚽ *{prono['home_team']} vs {prono['away_team']}*\n"
+            f"🏆 {prono['league']}\n"
+            f"📅 {prono['match_date']}\n\n"
+            f"🎯 *PRONOSTIC* : `{prono['prediction']}`\n"
+            f"📈 Value Bet : {prono.get('value_bet') or '?'}% {value_icon}\n"
+            f"💰 Mise conseillée : {prono.get('kelly_stake') or 3}% de ta bankroll\n"
+            f"⭐ Confiance : {stars_emoji(prono['confidence'])}\n\n"
+        )
+        if analysis_text:
+            text += f"📝 *ANALYSE*\n{analysis_text}\n\n"
+        if key_points:
+            text += "🔑 *Points clés* :\n" + "\n".join(f"  • {p}" for p in key_points) + "\n\n"
+        if verdict:
+            text += f"✅ *Verdict* : {verdict}\n\n"
+        text += (
+            f"🔒 _@{username} — ID:{user_id} — {now}_\n"
+            f"⚠️ _Les paris comportent des risques._"
+        )
+    else:
+        text = (
+            f"⚽ *{prono['home_team']} vs {prono['away_team']}*\n"
+            f"🏆 {prono['league']}\n"
+            f"📅 {prono['match_date']}\n\n"
+            f"🎯 *PREDICTION*: `{prono['prediction']}`\n"
+            f"📈 Value Bet: {prono.get('value_bet') or '?'}% {value_icon}\n"
+            f"💰 Recommended stake: {prono.get('kelly_stake') or 3}% of bankroll\n"
+            f"⭐ Confidence: {stars_emoji(prono['confidence'])}\n\n"
+        )
+        if analysis_text:
+            text += f"📝 *ANALYSIS*\n{analysis_text}\n\n"
+        if key_points:
+            text += "🔑 *Key points*:\n" + "\n".join(f"  • {p}" for p in key_points) + "\n\n"
+        if verdict:
+            text += f"✅ *Verdict*: {verdict}\n\n"
+        text += (
+            f"🔒 _@{username} — ID:{user_id} — {now}_\n"
+            f"⚠️ _Betting involves risks._"
+        )
+    return text
+
+
+async def _show_vip_teaser(query, lang: str):
+    if lang == 'fr':
+        text = (
+            "💎 *PRONOS VIP DU JOUR*\n\n"
+            "Notre IA a analysé aujourd'hui :\n\n"
+            "🔒 Match 1 : Confiance ★★★★★ — VIP/Basic\n"
+            "🔒 Match 2 : Confiance ★★★★☆ — VIP/Basic\n"
+            "🔒 Match 3 : Confiance ★★★★☆ — VIP/Basic\n"
+            "🔒 Match 4 : Confiance ★★★☆☆ — VIP only\n"
+            "🔒 Match 5 : Confiance ★★★★☆ — VIP only\n\n"
+            "💛 Basic = 3 pronos | 💎 VIP = 5 pronos\n\n"
+            "🚀 Abonne-toi pour accéder aux analyses!"
+        )
+    else:
+        text = (
+            "💎 *VIP PICKS OF THE DAY*\n\n"
+            "Our AI analyzed today:\n\n"
+            "🔒 Match 1: Confidence ★★★★★ — VIP/Basic\n"
+            "🔒 Match 2: Confidence ★★★★☆ — VIP/Basic\n"
+            "🔒 Match 3: Confidence ★★★★☆ — VIP/Basic\n"
+            "🔒 Match 4: Confidence ★★★☆☆ — VIP only\n"
+            "🔒 Match 5: Confidence ★★★★☆ — VIP only\n\n"
+            "💛 Basic = 3 picks | 💎 VIP = 5 picks\n\n"
+            "🚀 Subscribe to access all analyses!"
+        )
+    await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_upgrade_keyboard(lang, "basic"))
+
+
+async def _show_combined_teaser(query, lang: str):
+    if lang == 'fr':
+        text = (
+            "🎯 *COMBINÉ DU JOUR*\n\n"
+            "3 matchs sélectionnés par notre IA\n\n"
+            "🔒 Match A : ??? @ ?.??\n"
+            "🔒 Match B : ??? @ ?.??\n"
+            "🔒 Match C : ??? @ ?.??\n\n"
+            "💛 Accessible dès le plan Basic\n"
+            "🔒 _Débloque avec Basic ou VIP_"
+        )
+    else:
+        text = (
+            "🎯 *DAILY COMBO*\n\n"
+            "3 matches selected by our AI\n\n"
+            "🔒 Match A: ??? @ ?.??\n"
+            "🔒 Match B: ??? @ ?.??\n"
+            "🔒 Match C: ??? @ ?.??\n\n"
+            "💛 Available from Basic plan\n"
+            "🔒 _Unlock with Basic or VIP_"
+        )
+    await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_upgrade_keyboard(lang, "basic"))
