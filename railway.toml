@@ -17,8 +17,8 @@ restartPolicyMaxRetries = 5
 
 [[crons]]
 schedule = "0 9 * * *"
-command = "python generate_pronos.py"
+command = "python3 generate_pronos.py"
 
 [[crons]]
 schedule = "0 11 * * *"
-command = "python -c 'import asyncio; from api.check_results import update_results; asyncio.run(update_results())'"
+command = "python3 -c 'import asyncio; from api.check_results import update_results; asyncio.run(update_results())'"
