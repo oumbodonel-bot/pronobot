@@ -1,7 +1,14 @@
+[build]
+builder = "NIXPACKS"
+
+[build.nixpacksPlan.phases.setup]
+nixPkgs = ["python311", "zlib"]
+
 [deploy]
 startCommand = "bash start.sh"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
+
 [[crons]]
 schedule = "0 9 * * *"
 command  = "python generate_pronos.py"
