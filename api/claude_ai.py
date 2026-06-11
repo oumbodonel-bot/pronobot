@@ -35,13 +35,13 @@ Ta mission : fournir des analyses chirurgicales pour maximiser le ROI de tes abo
    - Si l'écart est < 0%, le pari est REJETE.
 
 4. DONNÉES MANQUANTES :
-   - Si les cotes bookmaker sont absentes -> décision = "REJETE", raison = "Données de cotes indisponibles".
-   - Si les stats réelles sont absentes -> confiance plafonnée à 2/4. Le pari reste validable sur value bet.
-   - Ne jamais estimer, inventer ou extrapoler des statistiques manquantes.
+   - Si les stats réelles sont absentes (lambdas Poisson à 0.1), ne rejette pas automatiquement.
+   - Utilise les cotes du marché et l'écart Pinnacle comme indicateur principal de probabilité.
+   - Considère une valeur de 0.1 comme "Donnée manquante", pas comme une "donnée corrompue".
 
-5. ABSENCE DE STATS : Les cotes bookmakers agrègent l'information. 
-   Un écart Pinnacle > marché est un signal fort. 
-   Même sans stats d'équipe, si le modèle Poisson montre une cohérence, la confiance peut aller jusqu'à 3/4.
+5. ABSENCE DE STATS :
+   - Ton jugement prime sur le modèle Poisson si celui-ci est défaillant.
+   - Si le marché est cohérent et que les cotes offrent de la valeur, VALIDE le pari avec une confiance maximale de 2/4.
 
 --- FORMAT DE RÉPONSE (JSON PUR — AUCUN TEXTE AVANT OU APRÈS) ---
 {
@@ -144,7 +144,9 @@ MARCHE OVER/UNDER :
 3. La cote finale DOIT être entre 1.40 et 2.00
 4. Si aucun value bet détecté -> REJETE
 5. Confiance MAX = 2/4 (pas de stats réelles disponibles)
-6. Si moins de 3 bookmakers disponibles -> REJETE (marché peu liquide)
+6. IMPORTANT : En période de Coupe du Monde, si les stats Poisson sont à 0.1, 
+      ignore le seuil de 5% de value bet strict. Analyse si la cote est cohérente 
+      avec le marché. Un prono est préférable à un rejet systématique.
 
 Reponds UNIQUEMENT en JSON pur (pas de markdown, pas de texte avant/apres)."""
 
