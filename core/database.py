@@ -4,6 +4,7 @@ Base de données - Modèles et initialisation
 
 import os
 import psycopg2
+from psycopg2.extras import RealDictCursor
 from datetime import datetime, date, timedelta, timezone
 import logging
 
