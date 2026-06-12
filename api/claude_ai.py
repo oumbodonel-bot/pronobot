@@ -209,6 +209,15 @@ MARCHÉ OVER/UNDER :
 3. Confiance MAX = {"4/4" if has_real_stats else "2/4"}
 4. Si aucune opportunité → REJETE
 5. Utilise le market_alignment_score pour juger la fiabilité de la projection
+6. Recherche sur le web :
+   - blessures importantes
+   - suspensions
+   - forme récente
+   - confrontations directes récentes
+   - informations terrain pertinentes
+
+7. Si les informations web contredisent fortement le modèle,
+   privilégie les informations terrain.
 
 Reponds UNIQUEMENT en JSON pur (pas de markdown, pas de texte avant/apres)."""
 
@@ -217,12 +226,23 @@ Reponds UNIQUEMENT en JSON pur (pas de markdown, pas de texte avant/apres)."""
         "x-api-key":         ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
     }
-    payload = {
-        "model":      CLAUDE_MODEL,
-        "max_tokens": 2000,
-        "system":     SYSTEM_PROMPT,
-        "messages":   [{"role": "user", "content": prompt}],
-    }
+   payload = {
+    "model":      CLAUDE_MODEL,
+    "max_tokens": 2000,
+    "system":     SYSTEM_PROMPT,
+    "tools": [
+        {
+            "type": "web_search_20250305",
+            "name": "web_search"
+        }
+    ],
+    "messages": [
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ],
+}
 
     async with httpx.AsyncClient(timeout=60) as client:
         try:
