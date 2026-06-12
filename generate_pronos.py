@@ -88,8 +88,7 @@ async def process_match_with_claude(match: Dict) -> Optional[Dict]:
 
     # 1. Stats reelles
     home_stats, away_stats = await get_team_stats(home, away)
-
-   math = full_analysis(odds_data=match, home_stats=home_stats, away_stats=away_stats)
+    
 
     # 2. Calculs mathematiques Poisson + Dixon-Coles
     math = full_analysis(
