@@ -4,17 +4,17 @@ Claude recoit TOUT et decide seul : valide ou rejette, choisit le marche
 Modele : claude-3-5-sonnet-20240620
 """
 import os
-import httpx
 import json
 import logging
 import asyncio
 from typing import Dict, Tuple, Optional
+from anthropic import AsyncAnthropic
 
 logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL      = "claude-3-5-sonnet-20240620"
-API_URL           = "https://api.anthropic.com/v1/messages"
+client            = AsyncAnthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 
 # System Prompt optimisé (plus court, plus direct)
 SYSTEM_PROMPT = """Tu es l'expert EliteOddsClub. Analyse les données fournies pour décider d'un pari.
@@ -81,51 +81,34 @@ async def evaluate_match(
 
     user_content = f"Evaluate: {json.dumps(compact_data)}"
 
-    # Gestion anti-rate-limit (retry exponentiel simplifié)
+    if not client:
+        return {"decision": "REJETE", "raison_rejet": "Client Anthropic non initialisé"}
+
     for attempt in range(3):
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                r = await client.post(
-                    API_URL,
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-api-key": ANTHROPIC_API_KEY,
-                        "anthropic-version": "2023-06-01",
-                    },
-                    json={
-                        "model": CLAUDE_MODEL,
-                        "max_tokens": 1000,
-                        "system": SYSTEM_PROMPT,
-                        "messages": [{"role": "user", "content": user_content}],
-                    }
-                )
-                
-                if r.status_code == 429:
-                    wait = (attempt + 1) * 5
-                    logger.warning(f"Rate limit hit, waiting {wait}s...")
-                    await asyncio.sleep(wait)
-                    continue
-                
-                r.raise_for_status()
-                resp_json = r.json()
-                
-                # Parsing robuste
-                if not resp_json.get("content") or not resp_json["content"][0].get("text"):
-                    raise ValueError("Empty response from Claude")
-                
-                text = resp_json["content"][0]["text"].strip()
-                # Nettoyage si Claude met du markdown
-                if "```" in text:
-                    text = text.split("```")[1]
-                    if text.startswith("json"):
-                        text = text[4:]
-                
-                result = json.loads(text.strip())
-                logger.info(f"Claude decision for {home_team}: {result.get('decision')}")
-                return result
+            response = await client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=1000,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_content}]
+            )
+            
+            text = response.content[0].text.strip()
+            if "```" in text:
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+            
+            result = json.loads(text.strip())
+            logger.info(f"Claude decision for {home_team}: {result.get('decision')}")
+            return result
 
         except Exception as e:
             logger.error(f"Attempt {attempt+1} failed for {home_team}: {e}")
+            if "rate_limit" in str(e).lower():
+                wait = (attempt + 1) * 5
+                await asyncio.sleep(wait)
+                continue
             if attempt == 2: break
             await asyncio.sleep(2)
 
@@ -144,21 +127,23 @@ async def generate_combined_analysis(matches: list, total_odds: float) -> Tuple[
     return await _simple_gen("combined", data)
 
 async def _simple_gen(type_label: str, data: Dict) -> Tuple[Dict, Dict]:
+    if not client:
+        empty = {"analysis": "Analyse indisponible", "key_points": [], "verdict": "Pari sélectionné par l'algorithme."}
+        return empty, empty
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.post(
-                API_URL,
-                headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json"},
-                json={
-                    "model": CLAUDE_MODEL,
-                    "max_tokens": 600,
-                    "system": "Tu es un expert en paris. Réponds uniquement en JSON: {\"fr\": {\"analysis\":\"...\", \"key_points\":[], \"verdict\":\"\"}, \"en\": {...}}",
-                    "messages": [{"role": "user", "content": f"Analyze {type_label}: {json.dumps(data)}"}]
-                }
-            )
-            r.raise_for_status()
-            parsed = json.loads(r.json()["content"][0]["text"].strip())
-            return parsed["fr"], parsed["en"]
+        response = await client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=600,
+            system="Tu es un expert en paris. Réponds uniquement en JSON: {\"fr\": {\"analysis\":\"...\", \"key_points\":[], \"verdict\":\"\"}, \"en\": {...}}",
+            messages=[{"role": "user", "content": f"Analyze {type_label}: {json.dumps(data)}"}]
+        )
+        text = response.content[0].text.strip()
+        if "```" in text:
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        parsed = json.loads(text.strip())
+        return parsed["fr"], parsed["en"]
     except Exception as e:
         logger.error(f"Simple gen error: {e}")
         empty = {"analysis": "Analyse indisponible", "key_points": [], "verdict": "Pari sélectionné par l'algorithme."}
