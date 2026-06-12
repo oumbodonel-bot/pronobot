@@ -170,7 +170,16 @@ async def vip_pronos_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(t("loading", lang))
 
     pronos = get_today_pronos(plan='vip')
-    if not pronos:
+    # Filtrage des doublons par match pour l'affichage VIP
+    unique_pronos = []
+    seen_matches = set()
+    for p in pronos:
+        m_id = f"{p['home_team']}_{p['away_team']}"
+        if m_id not in seen_matches and p['prono_type'] == 'vip':
+            unique_pronos.append(p)
+            seen_matches.add(m_id)
+            
+    if not unique_pronos:
         await query.edit_message_text(
             t("no_prono_today", lang),
             reply_markup=_back_keyboard(lang)
@@ -178,7 +187,7 @@ async def vip_pronos_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     messages = []
-    for i, prono in enumerate(pronos[:max_pronos], 1):
+    for i, prono in enumerate(unique_pronos[:max_pronos], 1):
         label = f"💎 *PRONO VIP {i}/{min(len(pronos), max_pronos)}*" if lang == 'fr' else f"💎 *VIP PICK {i}/{min(len(pronos), max_pronos)}*"
         if not is_revealed(prono):
             timer = _timer_message(prono, lang)
@@ -221,12 +230,18 @@ async def combined_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.edit_message_text(t("loading", lang))
 
+    # On récupère les pronos spécifiquement marqués comme 'combined'
     pronos = get_today_pronos(plan='vip')
-    if len(pronos) < 2:
+    selected = [p for p in pronos if p['prono_type'] == 'combined']
+    
+    if len(selected) < 2:
+        # Fallback si pas de 'combined' spécifique : on prend les top VIP
+        selected = sorted([p for p in pronos if p['prono_type'] == 'vip'], 
+                          key=lambda x: x['confidence'], reverse=True)[:3]
+
+    if len(selected) < 2:
         await query.edit_message_text(t("no_prono_today", lang), reply_markup=_back_keyboard(lang))
         return
-
-    selected = sorted(pronos, key=lambda x: x['confidence'], reverse=True)[:3]
     
     # Le combiné est révélé dès que le PREMIER match est prêt (1h avant)
     header = "🎯 *COMBINÉ DU JOUR*\n\n" if lang == 'fr' else "🎯 *DAILY COMBO*\n\n"

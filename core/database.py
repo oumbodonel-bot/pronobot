@@ -183,11 +183,12 @@ def is_basic(user_id: int) -> bool:
 
 def is_revealed(prono) -> bool:
     if not prono.get('revealed_at'):
-        return True
+        return False
     now = datetime.now(timezone.utc)
     revealed_at = prono['revealed_at']
     if isinstance(revealed_at, str):
-        revealed_at = datetime.fromisoformat(revealed_at)
+        # Handle potential Z or +00:00
+        revealed_at = datetime.fromisoformat(revealed_at.replace("Z", "+00:00"))
     if revealed_at.tzinfo is None:
         revealed_at = revealed_at.replace(tzinfo=timezone.utc)
     return now >= revealed_at
@@ -195,16 +196,19 @@ def is_revealed(prono) -> bool:
 
 def time_until_reveal(prono) -> str:
     if not prono.get('revealed_at'):
-        return None
+        return "N/A"
     now = datetime.now(timezone.utc)
     revealed_at = prono['revealed_at']
     if isinstance(revealed_at, str):
-        revealed_at = datetime.fromisoformat(revealed_at)
+        # Handle potential Z or +00:00
+        revealed_at = datetime.fromisoformat(revealed_at.replace("Z", "+00:00"))
     if revealed_at.tzinfo is None:
         revealed_at = revealed_at.replace(tzinfo=timezone.utc)
+    
     diff = revealed_at - now
     if diff.total_seconds() <= 0:
-        return None
+        return "0h 00min"
+        
     hours   = int(diff.total_seconds() // 3600)
     minutes = int((diff.total_seconds() % 3600) // 60)
     return f"{hours}h {minutes:02d}min"
