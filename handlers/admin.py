@@ -94,13 +94,8 @@ async def broadcast_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     message_text = " ".join(context.args)
-    from core.database import get_conn
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM users")
-    users = cur.fetchall()
-    cur.close()
-    conn.close()
+    from core.database import get_all_users
+    users = get_all_users()
 
     success, fail = 0, 0
     status_msg = await update.message.reply_text(f"⏳ Envoi à {len(users)} utilisateurs...")

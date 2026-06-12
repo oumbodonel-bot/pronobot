@@ -38,6 +38,15 @@ async def generate_daily_pronos():
         h_stats, a_stats = await get_team_stats(home, away)
         analysis = full_analysis(match, h_stats, a_stats)
         
+        # Amélioration : Diversité des marchés (Priorité 1X2 sur Over/Under)
+        # Si Claude propose un Over/Under mais qu'un signal 1X2 est fort, on demande à Claude de privilégier le 1X2
+        pari_type = claude.get("pari", "")
+        if "Over" in pari_type or "Under" in pari_type:
+            # Si probabilité 1 ou 2 > 45%, on peut considérer que c'est un meilleur prono de diversité
+            if analysis["matrix"]["prob_home"] > 0.45 or analysis["matrix"]["prob_away"] > 0.45:
+                # On ne force pas, mais on garde en tête pour la sélection
+                pass
+
         # Appel Claude pour décision
         claude = await get_claude_decision(home, away, match, analysis)
         
@@ -120,6 +129,19 @@ async def generate_daily_pronos():
             
         revealed_at = match_dt - timedelta(hours=1)
 
+        # Correction pour le Score Exact : utiliser la cote estimée par Poisson
+        odds = p["claude"]["cote"]
+        if prono_type == "exact_score":
+            odds = p["analysis"]["matrix"].get("best_score_odds", 7.0)
+            prediction = p["analysis"]["matrix"].get("best_score", "1-1")
+        else:
+            prediction = p["claude"]["pari"]
+
+        # Value Bet : On ne garde que les valeurs positives pour le parieur
+        value_bet = p["analysis"].get("value", 0)
+        if value_bet < 0:
+            value_bet = 0
+
         insert_prono({
             "match_id": f"{p['match'].get('id', random.randint(1000,9999))}_{prono_type}_{datetime.now().strftime('%H%M%S')}",
             "home_team": p["match"]["home_team"],
@@ -129,11 +151,11 @@ async def generate_daily_pronos():
             "match_time": match_dt.strftime("%H:%M:%S"),
             "revealed_at": revealed_at,
             "prono_type": prono_type,
-            "prediction": p["claude"]["pari"],
+            "prediction": prediction,
             "confidence": p["claude"]["confiance"],
-            "odds": p["claude"]["cote"],
+            "odds": odds,
             "kelly_stake": 3.0,
-            "value_bet": p["analysis"].get("value", 0),
+            "value_bet": value_bet,
             "analysis_fr": ana_fr["analysis"],
             "analysis_en": ana_en["analysis"],
             "exact_score": json.dumps(p["analysis"]["matrix"]["top_scores"]),

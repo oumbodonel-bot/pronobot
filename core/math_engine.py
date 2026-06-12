@@ -128,8 +128,14 @@ def build_score_matrix(lh: float, la: float, over_line: float = 2.5) -> Dict:
 
     best_score_obj = top_scores[0] if top_scores else None
     best_score_val = "Non prédictible"
+    best_score_prob = 0.0
     if best_score_obj and best_score_obj["prob"] >= 10.0:
         best_score_val = best_score_obj["score"]
+        best_score_prob = best_score_obj["prob"] / 100.0
+
+    # Calcul d'une cote réaliste pour le score exact (basée sur Poisson)
+    # On ajoute une marge de sécurité de 15%
+    estimated_exact_odds = round(1.0 / (best_score_prob * 0.85), 2) if best_score_prob > 0 else 0.0
 
     return {
         "lambda_home":    round(lh,        3),
@@ -149,6 +155,8 @@ def build_score_matrix(lh: float, la: float, over_line: float = 2.5) -> Dict:
         "prob_dnb_2":     round(p_dnb_2,   4),
         "top_scores":     top_scores,
         "best_score":     best_score_val,
+        "best_score_prob": best_score_prob,
+        "best_score_odds": estimated_exact_odds,
         "mass_captured":  round(total_mass * 100, 3),
     }
 

@@ -16,6 +16,16 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost/pronobot")
 def get_conn():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
+def get_all_users():
+    """Récupère tous les utilisateurs pour le broadcast."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM users")
+    users = cur.fetchall()
+    cur.close()
+    conn.close()
+    return users
+
 
 def init_db():
     conn = get_conn()
