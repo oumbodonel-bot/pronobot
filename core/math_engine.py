@@ -318,13 +318,31 @@ def full_analysis(odds_data: Dict, home_stats: Optional[Dict] = None, away_stats
         ("BTTS Non", "prob_no_btts", None, "BTTS"),
     ]
 
+    # Récupération des cotes de base pour dérivation
+    o_h = odds_data.get("odds_home")
+    o_x = odds_data.get("odds_draw")
+    o_a = odds_data.get("odds_away")
+
     for label, prob_key, odds_key, mkt_type in checks:
         prob_val = matrix.get(prob_key, 0)
-        odds_val = odds_data.get(odds_key) if odds_key else (1.0/mkt.get(prob_key, 0.5) if mkt.get(prob_key) else 2.0)
-        
-        # Estimation simplifiée de la cote si non fournie par l'API
+        odds_val = odds_data.get(odds_key)
+
+        # Calcul des cotes dérivées si non fournies (Double Chance & DNB)
         if not odds_val or odds_val < 1.1:
-            odds_val = round(1.0 / (prob_val * 1.05), 2) if prob_val > 0 else 2.0
+            if label == "1X" and o_h and o_x:
+                odds_val = (o_h * o_x) / (o_h + o_x)
+            elif label == "X2" and o_a and o_x:
+                odds_val = (o_a * o_x) / (o_a + o_x)
+            elif label == "12" and o_h and o_a:
+                odds_val = (o_h * o_a) / (o_h + o_a)
+            elif label == "DNB 1" and o_h and o_x:
+                odds_val = o_h * (1 - (1.0 / o_x))
+            elif label == "DNB 2" and o_a and o_x:
+                odds_val = o_a * (1 - (1.0 / o_x))
+            
+            # Si toujours pas de cote (ex: BTTS, Over 1.5), estimation Poisson prudente
+            if not odds_val or odds_val < 1.01:
+                odds_val = 1.0 / (prob_val * 1.10) if prob_val > 0.1 else 2.0
 
         vb = compute_value_bet(prob_val, odds_val, pin["has_pinnacle"], pin["signal"], mode=mode)
         markets.append({

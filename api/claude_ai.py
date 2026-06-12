@@ -69,11 +69,22 @@ def parse_claude_json(text: str) -> Optional[Dict]:
         
         # Réparation de troncature (fermeture d'accolades et guillemets)
         if text.startswith("{") and not text.endswith("}"):
-            # Compter les guillemets pour voir s'il en manque un
+            # Réparation plus robuste des structures imbriquées
+            # On ferme les guillemets ouverts
             if text.count('"') % 2 != 0:
                 text += '"'
-            # Ajouter les accolades manquantes
-            text += "}"
+            
+            # On ferme les accolades manquantes
+            open_braces = text.count('{')
+            close_braces = text.count('}')
+            if open_braces > close_braces:
+                text += '}' * (open_braces - close_braces)
+            
+            # On ferme les crochets manquants
+            open_brackets = text.count('[')
+            close_brackets = text.count(']')
+            if open_brackets > close_brackets:
+                text += ']' * (open_brackets - close_brackets)
             
         # Tentative de parsing direct
         try:
@@ -105,7 +116,7 @@ async def generate_simple_analysis(type_label: str, data: Dict) -> Tuple[Dict, D
     try:
         response = await client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=300,
+            max_tokens=600, # Augmenté pour éviter la troncature
             temperature=0,
             system=prompt,
             messages=[{"role": "user", "content": f"Analyse {type_label}: {json.dumps(data)}"}]

@@ -103,7 +103,7 @@ async def generate_daily_pronos():
                 "value_bet": p["claude"].get("value", 0),
                 "analysis_fr": ana_fr["analysis"],
                 "analysis_en": ana_en["analysis"],
-                "exact_score": p["analysis"]["matrix"]["best_score"],
+                "exact_score": json.dumps(p["analysis"]["matrix"]["top_scores"]),
                 "plan_required": "free" if is_free else "vip"
             })
             logger.info(f"  [{label}] {p['match']['home_team']} vs {p['match']['away_team']} inséré.")
