@@ -228,27 +228,25 @@ async def combined_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     selected = sorted(pronos, key=lambda x: x['confidence'], reverse=True)[:3]
     
-    # On montre TOUJOURS les 3 matchs, révélés ou non
-    messages = []
+    # Le combiné est révélé dès que le PREMIER match est prêt (1h avant)
     header = "🎯 *COMBINÉ DU JOUR*\n\n" if lang == 'fr' else "🎯 *DAILY COMBO*\n\n"
     
-    all_revealed = True
-    for p in selected:
-        if not is_revealed(p):
-            all_revealed = False
-            break
-            
-    if not all_revealed:
-        # Si au moins un n'est pas révélé, on montre la liste avec timers
+    # On trie par date/heure pour trouver le premier match chronologique
+    sorted_by_time = sorted(selected, key=lambda x: (x['match_date'], x['match_time'] or "23:59:59"))
+    first_match = sorted_by_time[0]
+    
+    # Si le premier match n'est pas révélé, on montre les timers pour tout le ticket
+    if not is_revealed(first_match):
+        messages = []
         for i, p in enumerate(selected, 1):
-            if not is_revealed(p):
-                messages.append(f"🔢 *MATCH {i}/3*\n" + _timer_message(p, lang))
-            else:
-                messages.append(f"🔢 *MATCH {i}/3*\n✅ *{p['home_team']} vs {p['away_team']}*\n   └ {p['prediction']} @ {p['odds']}")
+            messages.append(f"🔢 *MATCH {i}/3*\n" + _timer_message(p, lang))
         
         full_text = header + "\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n".join(messages)
         await query.edit_message_text(full_text, parse_mode=ParseMode.MARKDOWN, reply_markup=_back_keyboard(lang))
         return
+    
+    # Si le premier match est révélé, on révèle TOUT le ticket
+    # (La suite du code existant gère déjà l'affichage complet)
 
     total_odds = 1.0
     for p in selected:
