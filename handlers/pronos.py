@@ -341,52 +341,8 @@ async def exact_score_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     now = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
 
-    if lang == 'fr':
-        text = (
-            header +
-            f"⚽ *{prono['home_team']} vs {prono['away_team']}*\n"
-            f"🏆 {prono['league']}\n\n"
-        )
-        if prono.get('exact_score'):
-            import json
-            try:
-                scores = json.loads(prono['exact_score']) if isinstance(prono['exact_score'], str) else prono['exact_score']
-                if isinstance(scores, list) and len(scores) > 0:
-                    best = scores[0]
-                    text += f"📊 *Score le plus probable* : `{best['score']}` ({best['prob']}%)\n"
-                else:
-                    text += f"📊 *Score le plus probable* : `{prono['exact_score']}`\n"
-            except:
-                text += f"📊 *Score le plus probable* : `{prono['exact_score']}`\n"
-        text += (
-            f"\n🎯 *Score recommandé* : `{prono['prediction']}`\n"
-            f"⭐ Confiance : {stars_emoji(prono['confidence'])}\n\n"
-            f"🔒 _Généré pour @{username} — ID:{user_id} — {now}_\n"
-            f"⚠️ _Les paris comportent des risques._"
-        )
-    else:
-        text = (
-            f"🎰 *EXACT SCORE OF THE DAY*\n\n"
-            f"⚽ *{prono['home_team']} vs {prono['away_team']}*\n"
-            f"🏆 {prono['league']}\n\n"
-        )
-        if prono.get('exact_score'):
-            import json
-            try:
-                scores = json.loads(prono['exact_score']) if isinstance(prono['exact_score'], str) else prono['exact_score']
-                if isinstance(scores, list) and len(scores) > 0:
-                    best = scores[0]
-                    text += f"📊 *Most probable score*: `{best['score']}` ({best['prob']}%)\n"
-                else:
-                    text += f"📊 *Most probable score*: `{prono['exact_score']}`\n"
-            except:
-                text += f"📊 *Most probable score*: `{prono['exact_score']}`\n"
-        text += (
-            f"\n🎯 *Recommended score*: `{prono['prediction']}`\n"
-            f"⭐ Confidence: {stars_emoji(prono['confidence'])}\n\n"
-            f"🔒 _Generated for @{username} — ID:{user_id} — {now}_\n"
-            f"⚠️ _Betting involves risks._"
-        )
+    # On utilise le formateur standard pour garder la même structure professionnelle
+    text = _format_prono(prono, lang, user_id, username, label=header.strip())
 
     if already_seen:
         text = _double_consult_warning(prono, lang, user_id, username) + "\n\n" + text
@@ -466,7 +422,7 @@ async def montante_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # HELPERS
 # ════════════════════════════════════════════════════
 
-def _format_prono(prono, lang: str, user_id: int, username: str) -> str:
+def _format_prono(prono, lang: str, user_id: int, username: str, label: str = None) -> str:
     """Formate un prono individuel avec structure professionnelle stricte."""
     now = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
     
@@ -489,14 +445,29 @@ def _format_prono(prono, lang: str, user_id: int, username: str) -> str:
     else:
         analysis_text = ""
 
+    # Pour le Score Exact, on peut vouloir ajouter la probabilité spécifique
+    score_prob_text = ""
+    if prono.get('prono_type') == 'exact_score' and prono.get('exact_score'):
+        try:
+            scores = json.loads(prono['exact_score']) if isinstance(prono['exact_score'], str) else prono['exact_score']
+            if isinstance(scores, list) and len(scores) > 0:
+                best = scores[0]
+                score_prob_text = f"📊 *PROBABILITÉ* : {best['prob']}%\n" if lang == 'fr' else f"📊 *PROBABILITY* : {best['prob']}%\n"
+        except:
+            pass
+
+    header = f"{label}\n\n" if label else ""
+
     if lang == 'fr':
         text = (
+            header +
             f"🏆 *COMPÉTITION* : {prono['league']}\n"
             f"⏰ *HEURE DU MATCH* : {match_time}\n"
             f"⚽ *AFFICHE* : {prono['home_team']} vs {prono['away_team']}\n"
             f"🎯 *PRONOSTIC* : {prono['prediction']}\n"
             f"💰 *COTE* : {prono['odds']}\n"
             f"⭐ *CONFIANCE* : {prono['confidence']}/5\n"
+            f"{score_prob_text}"
             f"📈 *VALUE BET* : {value_text}\n\n"
             f"📝 *ANALYSE* :\n_{analysis_text}_\n\n"
             f"🔒 _Généré pour @{username} — ID:{user_id} — {now}_\n"
@@ -504,12 +475,14 @@ def _format_prono(prono, lang: str, user_id: int, username: str) -> str:
         )
     else:
         text = (
+            header +
             f"🏆 *COMPETITION* : {prono['league']}\n"
             f"⏰ *MATCH TIME* : {match_time}\n"
             f"⚽ *MATCH* : {prono['home_team']} vs {prono['away_team']}\n"
             f"🎯 *PREDICTION* : {prono['prediction']}\n"
             f"💰 *ODDS* : {prono['odds']}\n"
             f"⭐ *CONFIDENCE* : {prono['confidence']}/5\n"
+            f"{score_prob_text}"
             f"📈 *VALUE BET* : {value_text}\n\n"
             f"📝 *ANALYSIS*:\n_{analysis_text}_\n\n"
             f"🔒 _Generated for @{username} — ID:{user_id} — {now}_\n"

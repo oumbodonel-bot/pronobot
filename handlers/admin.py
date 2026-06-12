@@ -76,8 +76,40 @@ async def stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
 
 async def broadcast_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if not is_admin(query.from_user.id):
+    """Gère la commande /broadcast et l'invite initiale."""
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        if not is_admin(query.from_user.id): return
+        await query.edit_message_text("📢 *MODE BROADCAST*\n\nUtilisez la commande :\n`/broadcast Votre message ici`", parse_mode=ParseMode.MARKDOWN)
         return
-    await query.edit_message_text("📢 Send: `/broadcast Your message`", parse_mode=ParseMode.MARKDOWN)
+
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Accès refusé.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("❌ Message vide. Usage : `/broadcast Mon message`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    message_text = " ".join(context.args)
+    from core.database import get_conn
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM users")
+    users = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    success, fail = 0, 0
+    status_msg = await update.message.reply_text(f"⏳ Envoi à {len(users)} utilisateurs...")
+
+    for user in users:
+        try:
+            await context.bot.send_message(chat_id=user['id'], text=message_text, parse_mode=ParseMode.MARKDOWN)
+            success += 1
+        except Exception:
+            fail += 1
+        
+    await status_msg.edit_text(f"📢 *BROADCAST TERMINÉ*\n\n✅ Succès : {success}\n❌ Échecs : {fail}", parse_mode=ParseMode.MARKDOWN)
