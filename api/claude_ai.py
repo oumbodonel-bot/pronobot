@@ -94,12 +94,32 @@ async def evaluate_match(
             )
             
             text = response.content[0].text.strip()
+            # Nettoyage robuste du JSON
             if "```" in text:
                 text = text.split("```")[1]
                 if text.startswith("json"):
                     text = text[4:]
             
-            result = json.loads(text.strip())
+            text = text.strip()
+            # Si la chaîne semble tronquée (pas de accolade fermante), on tente de la fermer
+            if text.startswith("{") and not text.endswith("}"):
+                logger.warning(f"JSON tronqué détecté pour {home_team}, tentative de réparation...")
+                # On cherche le dernier guillemet ou virgule pour essayer de fermer proprement
+                if text.count('"') % 2 != 0:
+                    text += '"'
+                text += "}"
+
+            try:
+                result = json.loads(text)
+            except json.JSONDecodeError:
+                # Tentative ultime : extraire uniquement ce qui ressemble à du JSON
+                import re
+                match_json = re.search(r'\{.*\}', text, re.DOTALL)
+                if match_json:
+                    result = json.loads(match_json.group())
+                else:
+                    raise
+
             logger.info(f"Claude decision for {home_team}: {result.get('decision')}")
             return result
 
@@ -142,7 +162,18 @@ async def _simple_gen(type_label: str, data: Dict) -> Tuple[Dict, Dict]:
             text = text.split("```")[1]
             if text.startswith("json"):
                 text = text[4:]
-        parsed = json.loads(text.strip())
+        
+        text = text.strip()
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            import re
+            match_json = re.search(r'\{.*\}', text, re.DOTALL)
+            if match_json:
+                parsed = json.loads(match_json.group())
+            else:
+                raise
+
         return parsed["fr"], parsed["en"]
     except Exception as e:
         logger.error(f"Simple gen error: {e}")

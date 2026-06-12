@@ -376,10 +376,11 @@ async def generate_daily_pronos():
         home_stats, away_stats = await get_team_stats(match["home_team"], match["away_team"])
         _home = home_stats or {"avg_scored": 0, "avg_conceded": 0, "form_score": 0.5, "xg": 0}
         _away = away_stats or {"avg_scored": 0, "avg_conceded": 0, "form_score": 0.5, "xg": 0}
-        math  = full_analysis(_home, _away,
-                              match.get("odds_home", 2.0),
-                              match.get("odds_draw",  3.3),
-                              match.get("odds_away",  3.5))
+        math  = full_analysis(
+            odds_data  = match,
+            home_stats = home_stats,
+            away_stats = away_stats
+        )
 
         montante_info = {
             "home_team":  match["home_team"],
