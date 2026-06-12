@@ -29,19 +29,30 @@ Ta mission : fournir des analyses chirurgicales pour maximiser le ROI de tes abo
    - /combine      : 3 matchs sélectionnés indépendamment. Cote totale finale entre [2.50 - 4.00].
    - /score_exact  : Modèle de Poisson + Dixon-Coles uniquement. Un seul score proposé, le plus probable.
 
-3. VALEUR (VALUE BET) : Recherche d'opportunité.
-   - Idéalement, prob_stat > prob_implicite + 0.02 (2% suffisent pour valider).
-   - Si l'écart est entre 0% et 2%, le pari est VALIDE uniquement si l'analyse qualitative (forme, enjeu, match international) le justifie.
-   - Si l'écart est < 0%, le pari est REJETE.
+3. VALEUR (VALUE BET) :
+   MODE A (stats réelles disponibles) :
+   - prob_stat > prob_implicite + 2% → VALIDE
+   - prob_stat entre 0% et 2% → VALIDE si analyse qualitative le justifie
+   - prob_stat < 0% → REJETE
 
-4. DONNÉES MANQUANTES :
-   - Si les stats réelles sont absentes (lambdas Poisson à 0.1), ne rejette pas automatiquement.
-   - Utilise les cotes du marché et l'écart Pinnacle comme indicateur principal de probabilité.
-   - Considère une valeur de 0.1 comme "Donnée manquante", pas comme une "donnée corrompue".
+   MODE B (Poisson calibré depuis les cotes — PAS de stats réelles) :
+   - Ne PAS appliquer le seuil value bet standard (les probs sont dérivées du marché lui-même).
+   - Utiliser UNIQUEMENT le signal Pinnacle pour confirmer une opportunité.
+   - Pinnacle FORT (≥5%) ou MODÉRÉ (≥3%) dans la direction du pari → VALIDE
+   - Sans signal Pinnacle → VALIDE uniquement si market_alignment_score ≥ 70 ET cote dans la plage métier
+   - Confiance MAX = 2/4 en Mode B.
+
+4. MARKET ALIGNMENT SCORE (Mode B uniquement) :
+   - Score 0-100 mesurant la cohérence entre Poisson reconstruit et le marché.
+   - ≥ 90 EXCELLENT : projection très fiable (scores, BTTS, O/U)
+   - 70-89 BON      : projection fiable
+   - 50-69 MODÉRÉ   : utiliser avec précaution
+   - < 50  FAIBLE   : ne pas valider sans signal Pinnacle fort
 
 5. ABSENCE DE STATS :
    - Ton jugement prime sur le modèle Poisson si celui-ci est défaillant.
-   - Si le marché est cohérent et que les cotes offrent de la valeur, VALIDE le pari avec une confiance maximale de 2/4.
+   - Mode B = moteur de projection. Scores exacts, BTTS, Over/Under restent fiables.
+   - Ne jamais inventer de statistiques.
 
 --- FORMAT DE RÉPONSE (JSON PUR — AUCUN TEXTE AVANT OU APRÈS) ---
 {
@@ -85,7 +96,12 @@ async def evaluate_match(
         logger.error("ANTHROPIC_API_KEY manquant!")
         return {"decision": "REJETE", "raison_rejet": "API Claude non configuree"}
 
-    # Pinnacle disponible ?
+    mode           = math_results.get("mode", "B")
+    has_real_stats = math_results.get("has_real_stats", False)
+    alignment      = math_results.get("alignment", {})
+    pin            = math_results.get("pinnacle", {})
+
+    # ── Section Pinnacle ──
     has_pinnacle = odds_data.get("pinnacle_home") is not None
     pinnacle_section = ""
     if has_pinnacle:
@@ -96,57 +112,103 @@ async def evaluate_match(
   Victoire {away_team} : {odds_data.get("pinnacle_away", "N/A")}
   Over buts            : {odds_data.get("pinnacle_over", "N/A")}
   Under buts           : {odds_data.get("pinnacle_under", "N/A")}
-  Écart Pinnacle/marché (domicile) : {odds_data.get("pinnacle_gap", "N/A")}
-⚠️ Un écart Pinnacle > marché = signal value bet fort.
+  Écart Pinnacle/marché : {pin.get("pinnacle_edge", "N/A")}%
+  Signal Pinnacle       : {pin.get("signal", "N/A")}
+  Favori Pinnacle       : {pin.get("favored", "N/A")}
+⚠️ Signal FORT (≥5%) ou MODÉRÉ (≥3%) = confirmation value bet forte.
 """
 
+    # ── Section moteur de projection (NOUVEAU) ──
+    prob_btts    = math_results.get("prob_btts",    0)
+    prob_no_btts = math_results.get("prob_no_btts", 0)
+    prob_over    = math_results.get("prob_over",    0)
+    prob_under   = math_results.get("prob_under",   0)
+    prob_home    = math_results.get("prob_home",    0)
+    prob_draw    = math_results.get("prob_draw",    0)
+    prob_away    = math_results.get("prob_away",    0)
+    mass         = math_results.get("mass_captured", 0)
+
+    if mode == "A":
+        mode_label   = "A — Dixon-Coles (stats réelles)"
+        value_method = "Comparaison prob Poisson vs prob implicite marché."
+        alignment_section = ""
+    else:
+        mode_label   = "B — Poisson calibré depuis les cotes (pas de stats réelles)"
+        value_method = (
+            "⚠️ Mode B : les probs Poisson sont dérivées du marché.\n"
+            "  → Ne PAS comparer nos probs aux cotes du même marché.\n"
+            "  → Value bet uniquement via signal Pinnacle.\n"
+            "  → Ce moteur est un moteur de PROJECTION (scores, BTTS, O/U)."
+        )
+        score = alignment.get("market_alignment_score", 0)
+        quality = alignment.get("alignment_quality", "?")
+        interp  = alignment.get("interpretation", "")
+        diffs   = alignment.get("diffs", {})
+        alignment_section = f"""
+=== MARKET ALIGNMENT SCORE (qualité de la projection) ===
+  Score       : {score}/100 — {quality}
+  Interprétation : {interp}
+  Écarts Poisson vs Marché :
+    - {home_team} : {diffs.get("home_diff", "?")}%
+    - Nul         : {diffs.get("draw_diff", "?")}%
+    - {away_team} : {diffs.get("away_diff", "?")}%
+    - Over/Under  : {diffs.get("over_diff", "?")}%
+"""
+
+    projection_section = f"""
+=== MOTEUR DE PROJECTION POISSON ===
+Mode          : {mode_label}
+λ {home_team} : {math_results.get("lambda_home", "?")}
+λ {away_team} : {math_results.get("lambda_away", "?")}
+Masse probabiliste capturée : {mass}%
+
+Probabilités reconstruites (matrice 12x12) :
+  Victoire {home_team} : {round(prob_home * 100, 1)}%
+  Match nul            : {round(prob_draw * 100, 1)}%
+  Victoire {away_team} : {round(prob_away * 100, 1)}%
+  Over {odds_data.get("over_line", 2.5)} buts  : {round(prob_over  * 100, 1)}%
+  Under {odds_data.get("over_line", 2.5)} buts : {round(prob_under * 100, 1)}%
+  BTTS Oui             : {round(prob_btts    * 100, 1)}%
+  BTTS Non             : {round(prob_no_btts * 100, 1)}%
+
+Score le plus probable : {math_results.get("best_score", "?")}
+Top 5 scores :
+{_format_top_scores(math_results.get("top_scores", [])[:5])}
+
+Méthode value bet : {value_method}
+{alignment_section}"""
+
+    # ── Prompt complet ──
     prompt = f"""Evalue ce match et decide si c'est un bon pari.
 
 === MATCH ===
 {home_team} vs {away_team}
 Competition : {league}
 Bookmakers disponibles : {odds_data.get("bookmaker_count", 0)} ({", ".join(odds_data.get("bookmaker_names", [])[:5])})
-
-=== NOTE IMPORTANTE ===
-Aucune statistique d'équipe disponible.
-Analyse basée sur : cotes bookmakers + modèle Poisson + {"cotes Pinnacle (sharp)" if has_pinnacle else "moyenne marché uniquement"}.
-Les cotes bookmakers agrègent l'information du marché et sont une source fiable de probabilités implicites.
-Confiance MAX = 2/4 dans ce contexte.
-
-=== MODÈLES MATHÉMATIQUES (Poisson basé sur les cotes) ===
-Buts attendus {home_team} : {math_results.get("lambda_home", "?")}
-Buts attendus {away_team} : {math_results.get("lambda_away", "?")}
-Probabilité victoire {home_team} : {math_results.get("prob_home_win", "?")}%
-Probabilité match nul           : {math_results.get("prob_draw", "?")}%
-Probabilité victoire {away_team} : {math_results.get("prob_away_win", "?")}%
-Over 2.5 buts  : {math_results.get("prob_over25", "?")}%
-Under 2.5 buts : {100 - math_results.get("prob_over25", 50) if math_results.get("prob_over25") else "?"}%
-Score le plus probable : {math_results.get("best_score", "?")}
+{"✅ Stats réelles disponibles" if has_real_stats else "❌ Pas de stats réelles — Mode B actif"}
+{projection_section}
 {pinnacle_section}
-=== COTES MARCHÉ MOYEN (tous bookmakers) ===
+=== COTES MARCHÉ MOYEN ===
 
-MARCHE 1X2 :
+MARCHÉ 1X2 :
   Victoire {home_team} : {odds_data.get("odds_home", "N/A")}
   Match Nul            : {odds_data.get("odds_draw", "N/A")}
   Victoire {away_team} : {odds_data.get("odds_away", "N/A")}
 
-MARCHE HANDICAP :
+MARCHÉ HANDICAP :
   {home_team} ({odds_data.get("handicap_home_line", "N/A")}) : {odds_data.get("handicap_home", "N/A")}
   {away_team} ({odds_data.get("handicap_away_line", "N/A")}) : {odds_data.get("handicap_away", "N/A")}
 
-MARCHE OVER/UNDER :
+MARCHÉ OVER/UNDER :
   Over {odds_data.get("over_line", 2.5)} buts  : {odds_data.get("over_odds",  "N/A")}
   Under {odds_data.get("under_line", 2.5)} buts : {odds_data.get("under_odds", "N/A")}
 
 === TA MISSION ===
-1. Applique la règle Value Bet : prob_stat doit dépasser (1 / cote) + 0.05
-2. Si Pinnacle disponible : un écart Pinnacle > marché renforce le signal
-3. La cote finale DOIT être entre 1.40 et 2.00
-4. Si aucun value bet détecté -> REJETE
-5. Confiance MAX = 2/4 (pas de stats réelles disponibles)
-6. IMPORTANT : En période de Coupe du Monde, si les stats Poisson sont à 0.1, 
-      ignore le seuil de 5% de value bet strict. Analyse si la cote est cohérente 
-      avec le marché. Un prono est préférable à un rejet systématique.
+1. Mode {mode} actif — applique les règles value bet correspondantes
+2. La cote finale DOIT être entre 1.40 et 2.00
+3. Confiance MAX = {"4/4" if has_real_stats else "2/4"}
+4. Si aucune opportunité → REJETE
+5. Utilise le market_alignment_score pour juger la fiabilité de la projection
 
 Reponds UNIQUEMENT en JSON pur (pas de markdown, pas de texte avant/apres)."""
 
@@ -191,7 +253,9 @@ Reponds UNIQUEMENT en JSON pur (pas de markdown, pas de texte avant/apres)."""
                     f"  Claude decision : {result.get('decision')} | "
                     f"Marche : {result.get('marche_choisi')} | "
                     f"Cote : {result.get('cote_choisie')} | "
-                    f"Confiance : {result.get('confiance')}/4"
+                    f"Confiance : {result.get('confiance')}/4 | "
+                    f"Mode : {mode} | "
+                    f"Alignment : {alignment.get('market_alignment_score', 'N/A')}/100"
                 )
                 return result
             else:
@@ -202,6 +266,16 @@ Reponds UNIQUEMENT en JSON pur (pas de markdown, pas de texte avant/apres)."""
             logger.error(f"Claude error: {e}")
 
     return {"decision": "REJETE", "raison_rejet": "Erreur API Claude"}
+
+
+def _format_top_scores(top_scores: list) -> str:
+    """Formate les top scores pour le prompt."""
+    if not top_scores:
+        return "  Aucun score disponible"
+    lines = []
+    for s in top_scores:
+        lines.append(f"  {s['score']} → {s['prob']}%")
+    return "\n".join(lines)
 
 
 async def generate_montante_analysis(match: Dict) -> Tuple[Dict, Dict]:
@@ -290,5 +364,8 @@ Reponds en JSON : {{"fr": {{"analysis":"...", "key_points":[], "verdict":""}}, "
            {"analysis": "Combo selected.",      "key_points": [], "verdict": ""}
 
 
-def _empty_fr(match): return {"analysis": f"Analyse {match.get('home_team','?')} vs {match.get('away_team','?')}.", "key_points": [], "verdict": ""}
-def _empty_en(match): return {"analysis": f"Analysis {match.get('home_team','?')} vs {match.get('away_team','?')}.", "key_points": [], "verdict": ""}
+def _empty_fr(match):
+    return {"analysis": f"Analyse {match.get('home_team','?')} vs {match.get('away_team','?')}.", "key_points": [], "verdict": ""}
+
+def _empty_en(match):
+    return {"analysis": f"Analysis {match.get('home_team','?')} vs {match.get('away_team','?')}.", "key_points": [], "verdict": ""}
