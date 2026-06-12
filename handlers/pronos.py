@@ -429,9 +429,9 @@ def _format_prono(prono, lang: str, user_id: int, username: str, label: str = No
     # Extraction de l'heure du match
     match_time = prono.get('match_time', 'N/A')
     
-    # Valeur du Value Bet
+    # Valeur du Value Bet - On ne montre que si c'est positif
     value_bet = prono.get('value_bet', 0)
-    value_text = f"{value_bet}%" if value_bet is not None and value_bet != 0 else "N/A"
+    value_text = f"{value_bet}%" if value_bet is not None and value_bet > 0 else "N/A"
 
     # Extraction de l'analyse synthétique
     analysis = prono.get(f'analysis_{lang}') or prono.get('analysis_fr') or ""

@@ -102,7 +102,11 @@ async def broadcast_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for user in users:
         try:
-            await context.bot.send_message(chat_id=user['id'], text=message_text, parse_mode=ParseMode.MARKDOWN)
+            # On tente d'abord en Markdown, sinon en texte brut pour éviter les erreurs de caractères spéciaux
+            try:
+                await context.bot.send_message(chat_id=user['id'], text=message_text, parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                await context.bot.send_message(chat_id=user['id'], text=message_text)
             success += 1
         except Exception:
             fail += 1

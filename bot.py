@@ -228,6 +228,7 @@ def main():
     app.add_handler(CommandHandler("menu",     menu_handler))
     app.add_handler(CommandHandler("admin",    admin_handler))
     app.add_handler(CommandHandler("activate", activate_handler))
+    app.add_handler(CommandHandler("broadcast", broadcast_handler))
     app.add_handler(CommandHandler("stats",    stats_public_handler))
     app.add_handler(CommandHandler("referral", referral_handler))
 
