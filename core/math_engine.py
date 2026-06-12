@@ -126,6 +126,11 @@ def build_score_matrix(lh: float, la: float, over_line: float = 2.5) -> Dict:
         reverse=True,
     )[:10]
 
+    best_score_obj = top_scores[0] if top_scores else None
+    best_score_val = "Non prédictible"
+    if best_score_obj and best_score_obj["prob"] >= 10.0:
+        best_score_val = best_score_obj["score"]
+
     return {
         "lambda_home":    round(lh,        3),
         "lambda_away":    round(la,        3),
@@ -143,7 +148,7 @@ def build_score_matrix(lh: float, la: float, over_line: float = 2.5) -> Dict:
         "prob_dnb_1":     round(p_dnb_1,   4),
         "prob_dnb_2":     round(p_dnb_2,   4),
         "top_scores":     top_scores,
-        "best_score":     top_scores[0]["score"] if top_scores else "1-0",
+        "best_score":     best_score_val,
         "mass_captured":  round(total_mass * 100, 3),
     }
 
