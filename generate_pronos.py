@@ -98,20 +98,25 @@ async def process_match_with_claude(match: Dict) -> Optional[Dict]:
 )
 
     # 3. Envoyer TOUT a Claude - il decide seul
-    claude_result = await evaluate_match(
-        home_team    = home,
-        away_team    = away,
-        league       = match["league"],
-        home_stats   = home_stats,
-        away_stats   = away_stats,
-        odds_data    = match,
-        math_results = math,
-    )
+    try:
+        claude_result = await evaluate_match(
+            home_team    = home,
+            away_team    = away,
+            league       = match["league"],
+            home_stats   = home_stats,
+            away_stats   = away_stats,
+            odds_data    = match,
+            math_results = math,
+        )
+    except Exception as e:
+        logger.error(f"  Erreur critique lors de l'appel Claude pour {home}: {e}")
+        return None
 
     # 4. Verifier la decision de Claude
-    if claude_result.get("decision") != "VALIDE":
-        raison = claude_result.get("raison_rejet", "Non specifie")
-        logger.info(f"  REJETE par Claude : {raison}")
+    decision = claude_result.get("decision")
+    if decision != "VALIDE":
+        raison = claude_result.get("raison_rejet", "Non spécifiée")
+        logger.info(f"  DÉCISION CLAUDE [{home}]: {decision} (Raison: {raison})")
         return None
 
     # Verifier que la cote choisie respecte les regles (1.40-2.00)
@@ -185,17 +190,23 @@ async def generate_daily_pronos():
     # ════════════════════════════════════════
     # ETAPE 2 : Claude evalue chaque match
     # ════════════════════════════════════════
-    logger.info("ETAPE 2 : Evaluation par Claude (sans filtre rigide)...")
+    logger.info("ETAPE 2 : Evaluation par Claude (avec pause anti-rate-limit)...")
 
     validated_matches = []
-    for match in all_matches:
+    # Limiter le nombre de matchs analysés pour économiser les tokens si nécessaire
+    # Ici on traite tout mais avec une pause
+    for i, match in enumerate(all_matches):
         try:
+            # Petite pause entre chaque match pour éviter de saturer le rate limit
+            if i > 0:
+                await asyncio.sleep(1) 
+            
             result = await process_match_with_claude(match)
             if result:
                 result["_match"] = match
                 validated_matches.append(result)
         except Exception as e:
-            logger.error(f"  Erreur: {e}")
+            logger.error(f"  Erreur lors du traitement du match {match.get('home_team')}: {e}")
             continue
 
     if not validated_matches:
