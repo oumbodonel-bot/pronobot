@@ -312,6 +312,14 @@ def insert_prono(data: dict) -> int:
     return prono_id
 
 
+async def get_team_stats(home_team: str, away_team: str):
+    """
+    Fonction temporaire pour éviter l'erreur d'import.
+    Retourne None pour forcer le Mode B (calibration cotes) qui est plus fiable sans base de données de stats.
+    """
+    return None, None
+
+
 def get_global_stats():
     conn = get_conn()
     cur = conn.cursor()

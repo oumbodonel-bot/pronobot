@@ -92,12 +92,19 @@ async def generate_daily_pronos():
                 "home_team": p["match"]["home_team"],
                 "away_team": p["match"]["away_team"],
                 "league": p["match"]["league"],
+                "match_date": datetime.now().date(),
+                "match_time": p["match"].get("match_time"),
+                "revealed_at": datetime.now(),
+                "prono_type": p["type"],
                 "prediction": p["claude"]["pari"],
+                "confidence": p["claude"]["confiance"],
                 "odds": p["claude"]["cote"],
-                "is_free": is_free,
+                "kelly_stake": 3.0,
+                "value_bet": p["claude"].get("value", 0),
                 "analysis_fr": ana_fr["analysis"],
                 "analysis_en": ana_en["analysis"],
-                "confiance": p["claude"]["confiance"]
+                "exact_score": p["analysis"]["matrix"]["best_score"],
+                "plan_required": "free" if is_free else "vip"
             })
             logger.info(f"  [{label}] {p['match']['home_team']} vs {p['match']['away_team']} inséré.")
 
