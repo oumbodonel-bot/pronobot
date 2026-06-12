@@ -348,31 +348,31 @@ def get_performance_stats(days: int = 30):
     conn = get_conn()
     cur  = conn.cursor()
 
-    # ← FIX : interpolation directe dans la query, pas via %s pour INTERVAL
+    # On calcule les stats directement depuis la table pronos pour plus de fiabilité
     cur.execute(f"""
         SELECT
-            COUNT(*)                                             AS total,
-            SUM(CASE WHEN is_correct = TRUE  THEN 1 ELSE 0 END) AS correct,
-            SUM(CASE WHEN is_correct = FALSE THEN 1 ELSE 0 END) AS wrong,
-            ROUND(AVG(CASE WHEN is_correct = TRUE THEN odds ELSE 0 END)::numeric, 2) AS avg_win_odds
+            COUNT(*)::int                                        AS total,
+            COALESCE(SUM(CASE WHEN is_correct = TRUE  THEN 1 ELSE 0 END), 0)::int AS correct,
+            COALESCE(SUM(CASE WHEN is_correct = FALSE THEN 1 ELSE 0 END), 0)::int AS wrong,
+            ROUND(COALESCE(AVG(CASE WHEN is_correct = TRUE THEN odds ELSE 0 END), 0)::numeric, 2) AS avg_win_odds
         FROM pronos
         WHERE match_date >= CURRENT_DATE - INTERVAL '{days} days'
           AND result IS NOT NULL
-          AND prono_type NOT IN ('combined', 'exact_score')
     """)
     stats = cur.fetchone()
 
     cur.execute("""
         SELECT is_correct FROM pronos
         WHERE result IS NOT NULL
-          AND prono_type NOT IN ('combined', 'exact_score')
-        ORDER BY match_date DESC
+        ORDER BY match_date DESC, id DESC
         LIMIT 20
     """)
     rows   = cur.fetchall()
     streak = 0
+    streak_type = "❌"
     if rows:
         first = rows[0]["is_correct"]
+        streak_type = "✅" if first else "❌"
         for r in rows:
             if r["is_correct"] == first:
                 streak += 1
@@ -381,11 +381,11 @@ def get_performance_stats(days: int = 30):
 
     cur.close()
     conn.close()
-    return {
-        **dict(stats),
-        "streak":      streak,
-        "streak_type": "✅" if (rows and rows[0]["is_correct"]) else "❌"
-    }
+    
+    res = dict(stats)
+    res["streak"] = streak
+    res["streak_type"] = streak_type
+    return res
 
 
 def get_user_by_referral(code: str):

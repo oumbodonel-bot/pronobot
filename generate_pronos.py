@@ -117,7 +117,7 @@ async def generate_daily_pronos():
             "confidence": p["claude"]["confiance"],
             "odds": p["claude"]["cote"],
             "kelly_stake": 3.0,
-            "value_bet": p["claude"].get("value", 0),
+            "value_bet": p["analysis"].get("value", 0),
             "analysis_fr": ana_fr["analysis"],
             "analysis_en": ana_en["analysis"],
             "exact_score": json.dumps(p["analysis"]["matrix"]["top_scores"]),

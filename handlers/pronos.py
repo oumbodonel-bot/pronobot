@@ -136,7 +136,8 @@ async def free_prono_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     already_seen = check_double_consultation(user_id, prono['id'])
     log_consultation(user_id, prono['id'])
-    text = _format_prono(prono, lang, user_id, username)
+    header = "⚽ *PRONO GRATUIT DU JOUR*\n\n" if lang == 'fr' else "⚽ *FREE PICK OF THE DAY*\n\n"
+    text = header + _format_prono(prono, lang, user_id, username)
 
     if already_seen:
         text = _double_consult_warning(prono, lang, user_id, username) + "\n\n" + text
@@ -178,14 +179,15 @@ async def vip_pronos_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     messages = []
     for i, prono in enumerate(pronos[:max_pronos], 1):
+        label = f"💎 *PRONO VIP {i}/{min(len(pronos), max_pronos)}*" if lang == 'fr' else f"💎 *VIP PICK {i}/{min(len(pronos), max_pronos)}*"
         if not is_revealed(prono):
             timer = _timer_message(prono, lang)
-            messages.append(f"🔢 *PRONO {i}/{min(len(pronos), max_pronos)}*\n\n" + timer)
+            messages.append(f"{label}\n\n" + timer)
             continue
 
         already_seen = check_double_consultation(user_id, prono['id'])
         log_consultation(user_id, prono['id'])
-        text = f"🔢 *PRONO {i}/{min(len(pronos), max_pronos)}*\n\n" + _format_prono(prono, lang, user_id, username)
+        text = f"{label}\n\n" + _format_prono(prono, lang, user_id, username)
 
         if already_seen:
             text = _double_consult_warning(prono, lang, user_id, username) + "\n\n" + text
@@ -225,14 +227,27 @@ async def combined_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     selected = sorted(pronos, key=lambda x: x['confidence'], reverse=True)[:3]
-
-    first_unrevealed = next((p for p in selected if not is_revealed(p)), None)
-    if first_unrevealed:
-        await query.edit_message_text(
-            _timer_message(first_unrevealed, lang),
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=_back_keyboard(lang)
-        )
+    
+    # On montre TOUJOURS les 3 matchs, révélés ou non
+    messages = []
+    header = "🎯 *COMBINÉ DU JOUR*\n\n" if lang == 'fr' else "🎯 *DAILY COMBO*\n\n"
+    
+    all_revealed = True
+    for p in selected:
+        if not is_revealed(p):
+            all_revealed = False
+            break
+            
+    if not all_revealed:
+        # Si au moins un n'est pas révélé, on montre la liste avec timers
+        for i, p in enumerate(selected, 1):
+            if not is_revealed(p):
+                messages.append(f"🔢 *MATCH {i}/3*\n" + _timer_message(p, lang))
+            else:
+                messages.append(f"🔢 *MATCH {i}/3*\n✅ *{p['home_team']} vs {p['away_team']}*\n   └ {p['prediction']} @ {p['odds']}")
+        
+        full_text = header + "\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n".join(messages)
+        await query.edit_message_text(full_text, parse_mode=ParseMode.MARKDOWN, reply_markup=_back_keyboard(lang))
         return
 
     total_odds = 1.0
@@ -242,7 +257,7 @@ async def combined_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
 
     if lang == 'fr':
-        text = "🎯 *COMBINÉ DU JOUR*\n\n"
+        text = header
         for p in selected:
             log_consultation(user_id, p['id'])
             text += f"✅ *{p['home_team']} vs {p['away_team']}*\n"
@@ -252,7 +267,7 @@ async def combined_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"🔒 _Combiné pour @{username} — ID:{user_id} — {now}_\n"
         text += f"⚠️ _Les paris comportent des risques._"
     else:
-        text = "🎯 *DAILY COMBO*\n\n"
+        text = header
         for p in selected:
             log_consultation(user_id, p['id'])
             text += f"✅ *{p['home_team']} vs {p['away_team']}*\n"
@@ -447,7 +462,7 @@ def _format_prono(prono, lang: str, user_id: int, username: str) -> str:
     
     # Valeur du Value Bet
     value_bet = prono.get('value_bet', 0)
-    value_text = f"{value_bet}%" if value_bet and value_bet != 0 else "N/A"
+    value_text = f"{value_bet}%" if value_bet is not None and value_bet != 0 else "N/A"
 
     # Extraction de l'analyse synthétique
     analysis = prono.get(f'analysis_{lang}') or prono.get('analysis_fr') or ""
