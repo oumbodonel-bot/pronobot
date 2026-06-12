@@ -322,11 +322,13 @@ async def exact_score_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             import json
             try:
                 scores = json.loads(prono['exact_score']) if isinstance(prono['exact_score'], str) else prono['exact_score']
-                text += "📊 *Top scores (Dixon-Coles)* :\n"
-                for s in scores[:5]:
-                    text += f"  • {s['score']} → {s['prob']}%\n"
+                if isinstance(scores, list) and len(scores) > 0:
+                    best = scores[0]
+                    text += f"📊 *Score le plus probable* : `{best['score']}` ({best['prob']}%)\n"
+                else:
+                    text += f"📊 *Score le plus probable* : `{prono['exact_score']}`\n"
             except:
-                text += f"  • {prono['exact_score']}\n"
+                text += f"📊 *Score le plus probable* : `{prono['exact_score']}`\n"
         text += (
             f"\n🎯 *Score recommandé* : `{prono['prediction']}`\n"
             f"⭐ Confiance : {stars_emoji(prono['confidence'])}\n\n"
@@ -343,11 +345,13 @@ async def exact_score_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             import json
             try:
                 scores = json.loads(prono['exact_score']) if isinstance(prono['exact_score'], str) else prono['exact_score']
-                text += "📊 *Top scores (Dixon-Coles)*:\n"
-                for s in scores[:5]:
-                    text += f"  • {s['score']} → {s['prob']}%\n"
+                if isinstance(scores, list) and len(scores) > 0:
+                    best = scores[0]
+                    text += f"📊 *Most probable score*: `{best['score']}` ({best['prob']}%)\n"
+                else:
+                    text += f"📊 *Most probable score*: `{prono['exact_score']}`\n"
             except:
-                text += f"  • {prono['exact_score']}\n"
+                text += f"📊 *Most probable score*: `{prono['exact_score']}`\n"
         text += (
             f"\n🎯 *Recommended score*: `{prono['prediction']}`\n"
             f"⭐ Confidence: {stars_emoji(prono['confidence'])}\n\n"
