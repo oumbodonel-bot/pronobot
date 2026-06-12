@@ -266,10 +266,10 @@ def pinnacle_signal(odds_data: Dict) -> Dict:
 # ════════════════════════════════════════════════════
 
 def compute_value_bet(our_prob: float, market_odds: float, has_pinnacle: bool = False, pin_signal: str = "NEUTRE", bookmaker_count: int = 5, mode: str = "A") -> Dict:
-    if mode == "B": return {"has_value": False, "value_pct": 0}
     fair_odds = 1.0 / our_prob if our_prob > 0 else 100
     value = (market_odds / fair_odds - 1) * 100
-    threshold = 3.0 if has_pinnacle and pin_signal in ["FORT", "MODERE"] else 6.0
+    # En mode B, on est plus conservateur sur le seuil de value
+    threshold = 3.0 if has_pinnacle and pin_signal in ["FORT", "MODERE"] else (8.0 if mode == "B" else 6.0)
     return {"has_value": value >= threshold, "value_pct": round(value, 2)}
 
 def kelly_stake(prob: float, odds: float) -> float:

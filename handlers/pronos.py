@@ -299,9 +299,10 @@ async def exact_score_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text(t("no_prono_today", lang), reply_markup=_back_keyboard(lang))
         return
 
+    header = "🎰 *SCORE EXACT DU JOUR*\n\n" if lang == 'fr' else "🎰 *EXACT SCORE OF THE DAY*\n\n"
     if not is_revealed(prono):
         await query.edit_message_text(
-            _timer_message(prono, lang),
+            header + _timer_message(prono, lang),
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=_back_keyboard(lang)
         )
@@ -314,7 +315,7 @@ async def exact_score_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if lang == 'fr':
         text = (
-            f"🎰 *SCORE EXACT DU JOUR*\n\n"
+            header +
             f"⚽ *{prono['home_team']} vs {prono['away_team']}*\n"
             f"🏆 {prono['league']}\n\n"
         )
@@ -414,9 +415,10 @@ async def montante_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(t("no_prono_today", lang), reply_markup=_back_keyboard(lang))
         return
 
+    header = "📈 *MONTANTE DU JOUR*\n\n" if lang == 'fr' else "📈 *DAILY MONTANTE*\n\n"
     if not is_revealed(prono):
         await query.edit_message_text(
-            _timer_message(prono, lang),
+            header + _timer_message(prono, lang),
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=_back_keyboard(lang)
         )
@@ -424,7 +426,7 @@ async def montante_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     already_seen = check_double_consultation(user_id, prono['id'])
     log_consultation(user_id, prono['id'])
-    text = _format_prono(prono, lang, user_id, username)
+    text = header + _format_prono(prono, lang, user_id, username)
 
     if already_seen:
         text = _double_consult_warning(prono, lang, user_id, username) + "\n\n" + text
