@@ -1,13 +1,9 @@
-"""
-Claude AI - Juge unique des pronostics
-Claude recoit TOUT et decide seul : valide ou rejette, choisit le marche
-Modele : claude-3-5-sonnet-20240620
-"""
 import os
 import json
 import logging
 import asyncio
-from typing import Dict, Tuple, Optional
+import re
+from typing import Dict, Optional, Tuple
 from anthropic import AsyncAnthropic
 
 logger = logging.getLogger(__name__)
@@ -16,166 +12,108 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL      = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 client            = AsyncAnthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 
-# System Prompt optimisé (plus court, plus direct)
-SYSTEM_PROMPT = """Tu es l'expert EliteOddsClub. Analyse les données fournies pour décider d'un pari.
+# System Prompt ultra-compact pour réduire les tokens et forcer le JSON
+SYSTEM_PROMPT = """Tu es l'expert EliteOddsClub. Analyse les données et décide.
+Réponds UNIQUEMENT en JSON compact:
+{"decision":"VALIDE"|"REJETE","raison":"Court","pari":"Label","cote":1.8,"confiance":1-5}
+INTERDIT: blabla, markdown, explications longues."""
 
-RÈGLES STRICTES :
-1. PLAFONNEMENT : Max 85% probabilité affichée.
-2. SÉLECTION :
-   - /gratuit : [1.40 - 2.00]
-   - /montante : [1.20 - 1.50]
-   - /combine : 3 matchs, total [2.50 - 4.00]
-3. VALEUR :
-   - MODE A (Stats) : prob_stat > prob_implicite + 2% => VALIDE.
-   - MODE B (Poisson) : Signal Pinnacle FORT (≥5%) ou MODÉRÉ (≥3%) => VALIDE. Sinon, market_alignment ≥ 70.
-4. FORMAT : JSON pur uniquement.
-
-JSON structure:
-{
-  "decision": "VALIDE" | "REJETE",
-  "raison_rejet": "string",
-  "marche_choisi": "1X2" | "Handicap" | "Over/Under",
-  "pronostic": "Texte court",
-  "cote_choisie": float,
-  "confiance": 1-4,
-  "analyse": {"fr": "...", "en": "..."},
-  "points_cles": {"fr": [], "en": []},
-  "verdict": {"fr": "...", "en": "..."}
-}"""
-
-async def evaluate_match(
-    home_team:    str,
-    away_team:    str,
-    league:       str,
-    home_stats:   Optional[Dict],
-    away_stats:   Optional[Dict],
-    odds_data:    Dict,
-    math_results: Dict,
-) -> Dict:
-    if not ANTHROPIC_API_KEY:
-        return {"decision": "REJETE", "raison_rejet": "API Key missing"}
-
-    mode = math_results.get("mode", "B")
-    alignment = math_results.get("alignment", {})
-    pin = math_results.get("pinnacle", {})
-    
-    # Construction d'un prompt ultra-compact
-    compact_data = {
-        "match": f"{home_team} vs {away_team} ({league})",
-        "mode": mode,
-        "stats_avail": math_results.get("has_real_stats", False),
-        "lambdas": [math_results.get("lambda_home"), math_results.get("lambda_away")],
-        "probs": {
-            "1X2": [round(math_results.get("prob_home", 0)*100, 1), round(math_results.get("prob_draw", 0)*100, 1), round(math_results.get("prob_away", 0)*100, 1)],
-            "O/U": [round(math_results.get("prob_over", 0)*100, 1), round(math_results.get("prob_under", 0)*100, 1)],
-            "BTTS": [round(math_results.get("prob_btts", 0)*100, 1)]
-        },
-        "best_score": math_results.get("best_score"),
-        "pinnacle": {"signal": pin.get("signal"), "edge": pin.get("pinnacle_edge")},
-        "alignment": alignment.get("market_alignment_score"),
-        "market_odds": {
-            "1X2": [odds_data.get("odds_home"), odds_data.get("odds_draw"), odds_data.get("odds_away")],
-            "O/U": [odds_data.get("over_odds"), odds_data.get("under_odds")]
-        }
-    }
-
-    user_content = f"Evaluate: {json.dumps(compact_data)}"
-
+async def get_claude_decision(home_team: str, away_team: str, match_data: Dict, analysis_data: Dict) -> Dict:
     if not client:
-        return {"decision": "REJETE", "raison_rejet": "Client Anthropic non initialisé"}
+        return {"decision": "REJETE", "raison": "Claude non configuré"}
+
+    # Compactage des données envoyées
+    user_content = f"Match: {home_team}-{away_team}. Data: {json.dumps(analysis_data)}"
 
     for attempt in range(3):
         try:
             response = await client.messages.create(
                 model=CLAUDE_MODEL,
-                max_tokens=1000,
+                max_tokens=150, # Très court
+                temperature=0,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}]
             )
             
-            text = response.content[0].text.strip()
-            # Nettoyage robuste du JSON
-            if "```" in text:
-                text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
+            raw_text = response.content[0].text.strip()
             
-            text = text.strip()
-            # Si la chaîne semble tronquée (pas de accolade fermante), on tente de la fermer
-            if text.startswith("{") and not text.endswith("}"):
-                logger.warning(f"JSON tronqué détecté pour {home_team}, tentative de réparation...")
-                # On cherche le dernier guillemet ou virgule pour essayer de fermer proprement
-                if text.count('"') % 2 != 0:
-                    text += '"'
-                text += "}"
-
-            try:
-                result = json.loads(text)
-            except json.JSONDecodeError:
-                # Tentative ultime : extraire uniquement ce qui ressemble à du JSON
-                import re
-                match_json = re.search(r'\{.*\}', text, re.DOTALL)
-                if match_json:
-                    result = json.loads(match_json.group())
-                else:
-                    raise
-
-            logger.info(f"Claude decision for {home_team}: {result.get('decision')}")
-            return result
+            # Nettoyage et extraction JSON
+            result = parse_claude_json(raw_text)
+            if result:
+                logger.info(f"Claude decision for {home_team}: {result.get('decision')}")
+                return result
+            
+            raise ValueError(f"Parsing failed for: {raw_text[:100]}...")
 
         except Exception as e:
             logger.error(f"Attempt {attempt+1} failed for {home_team}: {e}")
             if "rate_limit" in str(e).lower():
-                wait = (attempt + 1) * 5
-                await asyncio.sleep(wait)
-                continue
-            if attempt == 2: break
-            await asyncio.sleep(2)
+                await asyncio.sleep(5 * (attempt + 1))
+            else:
+                await asyncio.sleep(1)
 
-    return {"decision": "REJETE", "raison_rejet": "Claude API Error"}
+    return {"decision": "REJETE", "raison": "Claude API Error"}
 
-def _format_top_scores(top_scores: list) -> str:
-    return ", ".join([f"{s['score']} ({s['prob']}%)" for s in top_scores[:3]])
+def parse_claude_json(text: str) -> Optional[Dict]:
+    """Parsing JSON ultra-robuste avec réparation de troncature."""
+    try:
+        # Nettoyage basique
+        text = text.strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0]
+        
+        text = text.strip()
+        
+        # Réparation de troncature (fermeture d'accolades et guillemets)
+        if text.startswith("{") and not text.endswith("}"):
+            # Compter les guillemets pour voir s'il en manque un
+            if text.count('"') % 2 != 0:
+                text += '"'
+            # Ajouter les accolades manquantes
+            text += "}"
+            
+        # Tentative de parsing direct
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # Tentative via regex pour extraire le premier objet JSON valide
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group())
+                except:
+                    pass
+        
+        # Si toujours rien, logger la réponse brute pour debug
+        logger.error(f"ÉCHEC PARSING JSON. Réponse brute: {text}")
+        return None
+    except Exception as e:
+        logger.error(f"Erreur fatale dans parse_claude_json: {e}")
+        return None
 
-async def generate_montante_analysis(match: Dict) -> Tuple[Dict, Dict]:
-    # Version simplifiée pour réduire les tokens
-    return await _simple_gen("montante", match)
-
-async def generate_combined_analysis(matches: list, total_odds: float) -> Tuple[Dict, Dict]:
-    # Version simplifiée pour réduire les tokens
-    data = {"type": "combined", "odds": total_odds, "matches": matches}
-    return await _simple_gen("combined", data)
-
-async def _simple_gen(type_label: str, data: Dict) -> Tuple[Dict, Dict]:
+async def generate_simple_analysis(type_label: str, data: Dict) -> Tuple[Dict, Dict]:
+    """Génère une analyse courte pour les pronos."""
     if not client:
-        empty = {"analysis": "Analyse indisponible", "key_points": [], "verdict": "Pari sélectionné par l'algorithme."}
+        empty = {"analysis": "Non dispo", "key_points": [], "verdict": "Auto"}
         return empty, empty
+
+    prompt = "Expert paris. Réponds UNIQUEMENT en JSON: {\"fr\":{\"analysis\":\"...\",\"key_points\":[],\"verdict\":\"\"},\"en\":{...}}. Max 2 phrases."
+    
     try:
         response = await client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=600,
-            system="Tu es un expert en paris. Réponds uniquement en JSON: {\"fr\": {\"analysis\":\"...\", \"key_points\":[], \"verdict\":\"\"}, \"en\": {...}}",
-            messages=[{"role": "user", "content": f"Analyze {type_label}: {json.dumps(data)}"}]
+            max_tokens=300,
+            temperature=0,
+            system=prompt,
+            messages=[{"role": "user", "content": f"Analyse {type_label}: {json.dumps(data)}"}]
         )
-        text = response.content[0].text.strip()
-        if "```" in text:
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        
-        text = text.strip()
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            import re
-            match_json = re.search(r'\{.*\}', text, re.DOTALL)
-            if match_json:
-                parsed = json.loads(match_json.group())
-            else:
-                raise
-
-        return parsed["fr"], parsed["en"]
+        parsed = parse_claude_json(response.content[0].text)
+        if parsed and "fr" in parsed and "en" in parsed:
+            return parsed["fr"], parsed["en"]
     except Exception as e:
         logger.error(f"Simple gen error: {e}")
-        empty = {"analysis": "Analyse indisponible", "key_points": [], "verdict": "Pari sélectionné par l'algorithme."}
-        return empty, empty
+    
+    empty = {"analysis": "Analyse auto", "key_points": [], "verdict": "Pari validé."}
+    return empty, empty
