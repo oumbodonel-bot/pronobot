@@ -15,9 +15,9 @@ from core.database import insert_prono, init_db, get_team_stats
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Seuils et Config
-CONFIDENCE_THRESHOLD = 2
-DIVERSITY_LIMIT = 0.5  # Max 50% du même type de pari
+# Seuils et Config (Assouplis pour valider plus de matchs)
+CONFIDENCE_THRESHOLD = 1
+DIVERSITY_LIMIT = 0.8  # Max 80% du même type de pari
 
 async def generate_daily_pronos():
     init_db()
@@ -53,9 +53,9 @@ async def generate_daily_pronos():
         if claude.get("decision") == "VALIDE":
             pari_type = claude.get("pari", "Autre")
             
-            # Vérification Diversité
+            # Vérification Diversité (Plus souple)
             current_ratio = market_counts.get(pari_type, 0) / (len(valid_pronos) + 1)
-            if current_ratio > DIVERSITY_LIMIT and len(valid_pronos) >= 3:
+            if current_ratio > DIVERSITY_LIMIT and len(valid_pronos) >= 5:
                 logger.info(f"  REJETE : Trop de paris de type {pari_type} (Diversité)")
                 continue
 

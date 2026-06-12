@@ -12,11 +12,12 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL      = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 client            = AsyncAnthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 
-# System Prompt ultra-compact pour réduire les tokens et forcer le JSON
-SYSTEM_PROMPT = """Tu es l'expert EliteOddsClub. Analyse les données et décide.
+# System Prompt ultra-compact et pro-validation
+SYSTEM_PROMPT = """Tu es l'expert EliteOddsClub. Ta mission est de TROUVER un pari valide parmi les marchés fournis.
+Sois souple : si un marché a une probabilité > 55% ou un léger avantage, VALIDE-LE.
 Réponds UNIQUEMENT en JSON compact:
 {"decision":"VALIDE"|"REJETE","raison":"Court","pari":"Label","cote":1.8,"confiance":1-5}
-INTERDIT: blabla, markdown, explications longues."""
+Favorise la validation (VALIDE) si les données sont cohérentes. INTERDIT: blabla, markdown."""
 
 async def get_claude_decision(home_team: str, away_team: str, match_data: Dict, analysis_data: Dict) -> Dict:
     if not client:
