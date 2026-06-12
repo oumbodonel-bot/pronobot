@@ -89,17 +89,14 @@ async def process_match_with_claude(match: Dict) -> Optional[Dict]:
     # 1. Stats reelles
     home_stats, away_stats = await get_team_stats(home, away)
 
-    _home = home_stats or {"avg_scored": 0, "avg_conceded": 0, "form_score": 0.5, "xg": 0, "form_string": "N/A"}
-    _away = away_stats or {"avg_scored": 0, "avg_conceded": 0, "form_score": 0.5, "xg": 0, "form_string": "N/A"}
+   math = full_analysis(odds_data=match, home_stats=home_stats, away_stats=away_stats)
 
     # 2. Calculs mathematiques Poisson + Dixon-Coles
     math = full_analysis(
-        home_stats = _home,
-        away_stats = _away,
-        odds_home  = match.get("odds_home") or 2.0,
-        odds_draw  = match.get("odds_draw") or 3.3,
-        odds_away  = match.get("odds_away") or 3.5,
-    )
+    odds_data  = match,           # ← dict complet du match
+    home_stats = home_stats,      # ← None si indispo, c'est normal
+    away_stats = away_stats,
+)
 
     # 3. Envoyer TOUT a Claude - il decide seul
     claude_result = await evaluate_match(
