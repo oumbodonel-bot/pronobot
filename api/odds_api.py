@@ -32,6 +32,10 @@ SPORTS = [
 SHARP_BOOKMAKERS = ["pinnacle", "betfair_ex_eu", "matchbook"]
 
 
+async def get_all_leagues_odds() -> List[Dict]:
+    return await get_todays_odds()
+
+
 async def get_todays_odds() -> List[Dict]:
     """
     Recupere les vraies cotes du jour pour 3 marches :
