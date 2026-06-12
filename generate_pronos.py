@@ -42,6 +42,12 @@ async def generate_daily_pronos():
         claude = await get_claude_decision(home, away, match, analysis)
         
         if claude.get("decision") == "VALIDE":
+            # Data Integrity Check: Ensure real odds from API are present
+            real_odds = claude.get("cote")
+            if not real_odds or not isinstance(real_odds, (int, float)) or real_odds <= 1.0:
+                logger.warning(f"  REJETE : Cote réelle manquante ou invalide pour {home} vs {away}")
+                continue
+
             analyzed_matches.append({
                 "match": match,
                 "analysis": analysis,
@@ -105,7 +111,7 @@ async def generate_daily_pronos():
             "league": p["match"]["league"],
             "match_date": datetime.now().date(),
             "match_time": p["match"].get("match_time"),
-            "revealed_at": datetime.now(),
+            "revealed_at": p["match"]["match_datetime"] - timedelta(hours=1),
             "prono_type": prono_type,
             "prediction": p["claude"]["pari"],
             "confidence": p["claude"]["confiance"],

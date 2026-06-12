@@ -437,63 +437,52 @@ async def montante_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ════════════════════════════════════════════════════
 
 def _format_prono(prono, lang: str, user_id: int, username: str) -> str:
-    value_icon = "✅" if (prono.get('value_bet') or 0) > 0 else "⚠️"
-    analysis   = prono.get(f'analysis_{lang}') or prono.get('analysis_fr') or ""
-    now        = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
+    """Formate un prono individuel avec structure professionnelle stricte."""
+    now = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
+    
+    # Extraction de l'heure du match
+    match_time = prono.get('match_time', 'N/A')
+    
+    # Valeur du Value Bet
+    value_bet = prono.get('value_bet', 0)
+    value_text = f"{value_bet}%" if value_bet and value_bet != 0 else "N/A"
 
+    # Extraction de l'analyse synthétique
+    analysis = prono.get(f'analysis_{lang}') or prono.get('analysis_fr') or ""
     import json
     if isinstance(analysis, str):
         try:
-            analysis = json.loads(analysis)
+            analysis_obj = json.loads(analysis)
+            analysis_text = analysis_obj.get('analysis', analysis)
         except:
-            analysis = {}
-    if isinstance(analysis, dict):
-        analysis_text = analysis.get('analysis', '')
-        key_points    = analysis.get('key_points', [])
-        verdict       = analysis.get('verdict', '')
+            analysis_text = analysis
     else:
-        analysis_text = ''
-        key_points    = []
-        verdict       = ''
+        analysis_text = ""
 
     if lang == 'fr':
         text = (
-            f"⚽ *{prono['home_team']} vs {prono['away_team']}*\n"
-            f"🏆 {prono['league']}\n"
-            f"📅 {prono['match_date']}\n\n"
-            f"🎯 *PRONOSTIC* : `{prono['prediction']}`\n"
-            f"📈 Value Bet : {prono.get('value_bet') or '?'}% {value_icon}\n"
-            f"💰 Mise conseillée : {prono.get('kelly_stake') or 3}% de ta bankroll\n"
-            f"⭐ Confiance : {stars_emoji(prono['confidence'])}\n\n"
-        )
-        if analysis_text:
-            text += f"📝 *ANALYSE*\n{analysis_text}\n\n"
-        if key_points:
-            text += "🔑 *Points clés* :\n" + "\n".join(f"  • {p}" for p in key_points) + "\n\n"
-        if verdict:
-            text += f"✅ *Verdict* : {verdict}\n\n"
-        text += (
-            f"🔒 _@{username} — ID:{user_id} — {now}_\n"
+            f"🏆 *COMPÉTITION* : {prono['league']}\n"
+            f"⏰ *HEURE DU MATCH* : {match_time}\n"
+            f"⚽ *AFFICHE* : {prono['home_team']} vs {prono['away_team']}\n"
+            f"🎯 *PRONOSTIC* : {prono['prediction']}\n"
+            f"💰 *COTE* : {prono['odds']}\n"
+            f"⭐ *CONFIANCE* : {prono['confidence']}/5\n"
+            f"📈 *VALUE BET* : {value_text}\n\n"
+            f"📝 *ANALYSE* :\n_{analysis_text}_\n\n"
+            f"🔒 _Généré pour @{username} — ID:{user_id} — {now}_\n"
             f"⚠️ _Les paris comportent des risques._"
         )
     else:
         text = (
-            f"⚽ *{prono['home_team']} vs {prono['away_team']}*\n"
-            f"🏆 {prono['league']}\n"
-            f"📅 {prono['match_date']}\n\n"
-            f"🎯 *PREDICTION*: `{prono['prediction']}`\n"
-            f"📈 Value Bet: {prono.get('value_bet') or '?'}% {value_icon}\n"
-            f"💰 Recommended stake: {prono.get('kelly_stake') or 3}% of bankroll\n"
-            f"⭐ Confidence: {stars_emoji(prono['confidence'])}\n\n"
-        )
-        if analysis_text:
-            text += f"📝 *ANALYSIS*\n{analysis_text}\n\n"
-        if key_points:
-            text += "🔑 *Key points*:\n" + "\n".join(f"  • {p}" for p in key_points) + "\n\n"
-        if verdict:
-            text += f"✅ *Verdict*: {verdict}\n\n"
-        text += (
-            f"🔒 _@{username} — ID:{user_id} — {now}_\n"
+            f"🏆 *COMPETITION* : {prono['league']}\n"
+            f"⏰ *MATCH TIME* : {match_time}\n"
+            f"⚽ *MATCH* : {prono['home_team']} vs {prono['away_team']}\n"
+            f"🎯 *PREDICTION* : {prono['prediction']}\n"
+            f"💰 *ODDS* : {prono['odds']}\n"
+            f"⭐ *CONFIDENCE* : {prono['confidence']}/5\n"
+            f"📈 *VALUE BET* : {value_text}\n\n"
+            f"📝 *ANALYSIS*:\n_{analysis_text}_\n\n"
+            f"🔒 _Generated for @{username} — ID:{user_id} — {now}_\n"
             f"⚠️ _Betting involves risks._"
         )
     return text
