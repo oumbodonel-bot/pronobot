@@ -227,22 +227,22 @@ Reponds UNIQUEMENT en JSON pur (pas de markdown, pas de texte avant/apres)."""
         "anthropic-version": "2023-06-01",
     }
    payload = {
-    "model":      CLAUDE_MODEL,
-    "max_tokens": 2000,
-    "system":     SYSTEM_PROMPT,
-    "tools": [
-        {
-            "type": "web_search_20250305",
-            "name": "web_search"
-        }
-    ],
-    "messages": [
-        {
-            "role": "user",
-            "content": prompt
-        }
-    ],
-}
+        "model":      CLAUDE_MODEL,
+        "max_tokens": 2000,
+        "system":     SYSTEM_PROMPT,
+        "tools": [
+            {
+                "type": "web_search_20250305",
+                "name": "web_search"
+            }
+        ],
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+    }
 
     async with httpx.AsyncClient(timeout=60) as client:
         try:
