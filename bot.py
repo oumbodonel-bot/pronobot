@@ -231,34 +231,37 @@ def main():
     paris_tz = pytz.timezone("Europe/Paris")
     scheduler = BackgroundScheduler(timezone=paris_tz)
     
-    # Tâche de TEST : S'exécute dans 3 minutes
+    # Tâche de TEST : S'exécute dans 2 minutes (avec fuseau horaire explicite)
     from datetime import datetime, timedelta
-    test_time = datetime.now() + timedelta(minutes=3)
+    test_time = datetime.now(paris_tz) + timedelta(minutes=2)
     scheduler.add_job(
         lambda: logger.info("🚀 TEST AUTOMATISATION : La tâche planifiée s'est exécutée avec succès !"),
         trigger='date',
         run_date=test_time,
         id="test_job",
-        name="Tâche de test d'automatisation"
+        name="Tâche de test d'automatisation",
+        misfire_grace_time=600 # Tolérance de 10 minutes
     )
     logger.info(f"🧪 Tâche de test programmée pour {test_time.strftime('%H:%M:%S')}")
 
     # Tâche 1 : Génération des pronos à 09h00
     scheduler.add_job(
         lambda: asyncio.run(generate_daily_pronos()),
-        trigger=CronTrigger(hour=9, minute=0),
+        trigger=CronTrigger(hour=9, minute=0, timezone=paris_tz),
         id="generate_pronos",
         name="Génération quotidienne des pronostics",
-        replace_existing=True
+        replace_existing=True,
+        misfire_grace_time=3600 # Tolérance d'une heure
     )
     
     # Tâche 2 : Vérification des résultats à 11h00
     scheduler.add_job(
         lambda: asyncio.run(update_results()),
-        trigger=CronTrigger(hour=11, minute=0),
+        trigger=CronTrigger(hour=11, minute=0, timezone=paris_tz),
         id="check_results",
         name="Vérification quotidienne des résultats",
-        replace_existing=True
+        replace_existing=True,
+        misfire_grace_time=3600 # Tolérance d'une heure
     )
     
     scheduler.start()
