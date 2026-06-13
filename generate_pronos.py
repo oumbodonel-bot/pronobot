@@ -29,7 +29,13 @@ async def generate_daily_pronos():
         return
 
     # 2. Analyse Multi-Mode et Stockage
-    # Chaque catégorie a ses propres candidats analysés spécifiquement par Claude
+    stats = {
+        "total_matches": len(all_matches),
+        "validated": {"GRATUIT": 0, "VIP": 0, "MONTANTE": 0, "SCORE_EXACT": 0},
+        "rejected": {"GRATUIT": 0, "VIP": 0, "MONTANTE": 0, "SCORE_EXACT": 0},
+        "rejection_reasons": {"Claude": 0, "Cote": 0, "Confiance": 0, "Doublon": 0, "Metier": 0}
+    }
+
     categories = {
         "free": {"mode": "GRATUIT", "matches": [], "min_cote": 1.40, "max_cote": 2.00, "min_confiance": 2},
         "vip": {"mode": "VIP", "matches": [], "min_cote": 1.40, "max_cote": 2.00, "min_confiance": 2},
@@ -43,28 +49,42 @@ async def generate_daily_pronos():
         analysis = full_analysis(match, h_stats, a_stats)
         
         for cat_id, config in categories.items():
-            logger.info(f"[{config['mode']}] Analyse: {home} vs {away}")
+            mode_name = config["mode"]
+            logger.info(f"[{mode_name}] Analyse: {home} vs {away}")
             
             # Appel Claude avec le mode spécifique
-            claude = await get_claude_decision(home, away, match, analysis, mode=config["mode"])
+            claude = await get_claude_decision(home, away, match, analysis, mode=mode_name)
+            
+            # Logs détaillés demandés
+            decision = claude.get("decision", "REJETE")
+            pari = claude.get("marche_choisi", claude.get("pronostic", "N/A"))
+            cote = claude.get("cote_choisie", 0)
+            conf = claude.get("confiance", 0)
             
             # 1. Rejet par Claude
-            if claude.get("decision") != "VALIDE":
-                logger.info(f"  ❌ REJET CLAUDE : {claude.get('raison_rejet', 'Sans raison')}")
+            if decision != "VALIDE":
+                reason = claude.get('raison_rejet', 'Sans raison')
+                logger.info(f"  ❌ DÉCISION : {decision} | RAISON : {reason}")
+                stats["rejected"][mode_name] += 1
+                stats["rejection_reasons"]["Claude"] += 1
                 continue
                 
             # Mapping pour compatibilité
-            claude["pari"] = claude.get("marche_choisi", claude.get("pronostic", ""))
-            claude["cote"] = claude.get("cote_choisie", 0)
+            claude["pari"] = pari
+            claude["cote"] = cote
             
             # 2. Rejet par filtre de cote
-            if not (config["min_cote"] <= claude["cote"] <= config["max_cote"]):
-                logger.info(f"  ❌ REJET COTE : {claude['cote']} hors limites [{config['min_cote']}-{config['max_cote']}]")
+            if not (config["min_cote"] <= cote <= config["max_cote"]):
+                logger.info(f"  ❌ REJET COTE : {cote} hors limites [{config['min_cote']}-{config['max_cote']}]")
+                stats["rejected"][mode_name] += 1
+                stats["rejection_reasons"]["Cote"] += 1
                 continue
                 
             # 3. Rejet par filtre de confiance
-            if claude.get("confiance", 0) < config["min_confiance"]:
-                logger.info(f"  ❌ REJET CONFIANCE : {claude.get('confiance')} < {config['min_confiance']}")
+            if conf < config["min_confiance"]:
+                logger.info(f"  ❌ REJET CONFIANCE : {conf} < {config['min_confiance']}")
+                stats["rejected"][mode_name] += 1
+                stats["rejection_reasons"]["Confiance"] += 1
                 continue
                 
             # Match validé pour cette catégorie
@@ -72,9 +92,10 @@ async def generate_daily_pronos():
                 "match": match,
                 "analysis": analysis,
                 "claude": claude,
-                "type": claude["pari"]
+                "type": pari
             })
-            logger.info(f"  ✅ VALIDE pour {config['mode']}")
+            stats["validated"][mode_name] += 1
+            logger.info(f"  ✅ VALIDE | Marché: {pari} | Cote: {cote} | Confiance: {conf}")
             
         await asyncio.sleep(0.2)
 
@@ -100,7 +121,7 @@ async def generate_daily_pronos():
             elif m_id in seen_matches:
                 logger.info(f"  ❌ REJET DOUBLON VIP : {m_id}")
     
-    # C. Combiné (3 matchs parmi VIP ou Free pour assurer la cote 2.5-4.0)
+    # C. Combiné (3 matchs parmi VIP ou Free pour assurer la cote 2.00-4.00)
     combo_pronos = []
     all_valid = categories["vip"]["matches"] + categories["free"]["matches"]
     if len(all_valid) >= 3:
@@ -112,11 +133,12 @@ async def generate_daily_pronos():
             total_odds = 1.0
             for s in sample:
                 total_odds *= s["claude"]["cote"]
-            if 2.50 <= total_odds <= 4.00:
+            if 2.00 <= total_odds <= 4.00:
                 combo_pronos = sample
                 break
         if not combo_pronos:
-            logger.info("  ❌ REJET METIER COMBINE : Aucune combinaison de cote 2.5-4.0 trouvée")
+            logger.info("  ❌ REJET METIER COMBINE : Aucune combinaison de cote 2.00-4.00 trouvée")
+            stats["rejection_reasons"]["Metier"] += 1
     
     # D. Montante (Sécurité absolue)
     montante_prono = None
@@ -218,6 +240,17 @@ async def generate_daily_pronos():
     else:
         logger.info("❌ Section Score Exact : Section indisponible aujourd'hui")
 
+    logger.info("============================================================")
+    logger.info("📊 RÉSUMÉ GLOBAL DE LA GÉNÉRATION")
+    logger.info(f"Total matchs analysés : {stats['total_matches']}")
+    logger.info("------------------------------------------------------------")
+    for mode, count in stats["validated"].items():
+        rej = stats["rejected"][mode]
+        logger.info(f"Mode {mode:12} : ✅ {count} validés | ❌ {rej} rejetés")
+    logger.info("------------------------------------------------------------")
+    logger.info("Détail des rejets :")
+    for reason, count in stats["rejection_reasons"].items():
+        logger.info(f" - {reason:10} : {count}")
     logger.info("============================================================")
     logger.info("GENERATION TERMINEE")
 
