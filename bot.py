@@ -28,6 +28,7 @@ from handlers.stats import stats_public_handler, referral_handler
 from core.database import init_db, get_conn
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+import pytz
 import asyncio
 from generate_pronos import generate_daily_pronos
 from api.check_results import update_results
@@ -227,7 +228,8 @@ def main():
     logger.info("🌐 Dashboard démarré")
 
     # Configuration du Scheduler
-    scheduler = BackgroundScheduler(timezone="Europe/Paris")
+    paris_tz = pytz.timezone("Europe/Paris")
+    scheduler = BackgroundScheduler(timezone=paris_tz)
     
     # Tâche de TEST : S'exécute dans 3 minutes
     from datetime import datetime, timedelta
