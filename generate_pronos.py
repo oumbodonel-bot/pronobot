@@ -41,9 +41,9 @@ async def generate_daily_pronos():
         # Appel Claude pour décision
         claude = await get_claude_decision(home, away, match, analysis)
         
-        # Amélioration : Diversité des marchés (Priorité 1X2 sur Over/Under)
-        # On garde cette logique ici pour référence ou log, mais l'essentiel est fait lors de la sélection finale
-        pari_type = claude.get("pari", "")
+        # Mapping des nouveaux champs compacts vers les anciens noms pour compatibilité interne
+        claude["pari"] = claude.get("marche_choisi", claude.get("pronostic", ""))
+        claude["cote"] = claude.get("cote_choisie", 0)
         
         if claude.get("decision") == "VALIDE":
             # Data Integrity Check: Ensure real odds from API are present
