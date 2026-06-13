@@ -9,8 +9,8 @@ from anthropic import AsyncAnthropic, APIStatusError
 logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-# Rétablissement du modèle correct utilisé par l'utilisateur
-CLAUDE_MODEL      = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20240620") 
+# Utilisation du modèle EXACT spécifié par l'utilisateur
+CLAUDE_MODEL      = os.getenv("CLAUDE_MODEL", "sonnet-4-6") 
 client            = AsyncAnthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 
 # System Prompt pour une analyse unifiée et des décisions multi-catégories
