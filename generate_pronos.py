@@ -65,33 +65,74 @@ async def generate_daily_pronos():
     
     # On trie d'abord les matchs par confiance et on favorise le 1X2/Double Chance pour la diversité
     def score_match(m):
-        base = m["claude"].get("confiance", 0)
-        pari = m["claude"].get("pari", "")
-        # Bonus pour 1X2 et Double Chance
-        if any(x in pari for x in ["1", "X", "2", "1X", "X2", "12"]):
-            base += 0.5
-        return base
+        # score_opportunite = 35% qualité du marché + 25% cohérence statistique + 20% forme et contexte + 10% stabilité des cotes + 10% avantage compétitif
+        # Les valeurs sont des placeholders car Claude ne retourne pas directement ces métriques. On se base sur la confiance et la value.
+        # La confiance de Claude est notre proxy pour la qualité du marché, cohérence statistique, forme et contexte.
+        # La value bet est un indicateur clé d'avantage compétitif.
+        
+        # On va utiliser la confiance de Claude comme base principale, et la value bet comme un bonus.
+        # La confiance est sur une échelle de 1-5, on la normalise à 0-1 pour le calcul.
+        confiance_norm = (m["claude"].get("confiance", 1) - 1) / 4.0 # Normalise 1-5 à 0-1
+        
+        # Value bet: le prompt dit value > 2% est excellente, 0-2% acceptable. On donne un bonus proportionnel.
+        value_pct = m["claude"].get("value_pct", 0)
+        value_bonus = 0.0
+        if value_pct > 2.0:
+            value_bonus = 0.2 # Excellente opportunité
+        elif value_pct > 0.0:
+            value_bonus = 0.1 # Opportunité acceptable
+        
+        # On peut aussi ajouter un petit bonus pour les marchés 1X2/Double Chance comme avant, si Claude les valide.
+        pari_type = m["claude"].get("pari", "")
+        market_type_bonus = 0.0
+        if any(x in pari_type for x in ["1", "X", "2", "1X", "X2", "12"]):
+            market_type_bonus = 0.05 # Petit bonus pour la diversité des marchés
+            
+        # Combinaison des facteurs pour le score d'opportunité
+        # Les poids sont ajustés pour refléter l'importance relative.
+        score = (confiance_norm * 0.7) + (value_bonus * 0.2) + (market_type_bonus * 0.1)
+        
+        return score
 
     sorted_matches = sorted(analyzed_matches, key=score_match, reverse=True)
     
     # A. Prono Gratuit (Le plus fiable)
-    free_prono = sorted_matches[0] if sorted_matches else None
+    free_prono_candidates = [m for m in sorted_matches if 1.40 <= m["claude"].get("cote", 0) <= 2.00]
+    
+    # Prioriser les types de paris spécifiés
+    prioritized_free_pronos = []
+    for p in free_prono_candidates:
+        pari = p["claude"].get("pari", "")
+        if any(x in pari for x in ["Over 1.5", "Under 4.5", "Double Chance", "Draw No Bet", "Victoire simple favorite"]):
+            prioritized_free_pronos.append(p)
+            
+    free_prono = prioritized_free_pronos[0] if prioritized_free_pronos else (free_prono_candidates[0] if free_prono_candidates else None)
     
     # On retire le match gratuit des candidats pour les autres sections afin d'éviter les doublons
     remaining_matches = [m for m in sorted_matches if m != free_prono]
     
     # B. Pronos VIP (3 à 5 matchs)
-    vip_pronos = remaining_matches[:5]
+    vip_candidates = [m for m in remaining_matches if m["claude"].get("confiance", 0) >= 3] # Confiance 3/5 = 60%
+    
+    vip_pronos = []
+    seen_matches = set()
+    for p in vip_candidates:
+        match_identifier = f"{p["match"]["home_team"]}-{p["match"]["away_team"]}"
+        if match_identifier not in seen_matches and len(vip_pronos) < 5:
+            vip_pronos.append(p)
+            seen_matches.add(match_identifier)
 
     # C. Combiné du jour (3 matchs, Cote totale [2.00 - 4.00])
     combo_pronos = []
-    if len(remaining_matches) >= 3:
-        for _ in range(50):
-            sample = random.sample(remaining_matches, 3)
+    # On utilise les vip_candidates pour le combiné pour maintenir la qualité
+    if len(vip_candidates) >= 3:
+        for _ in range(50): # Tenter 50 fois de trouver un bon combiné
+            sample = random.sample(vip_candidates, 3)
             total_odds = 1.0
             for s in sample:
                 total_odds *= s["claude"].get("cote", 1.0)
-            if 2.00 <= total_odds <= 4.00:
+            # Vérifier la cote finale cible et la faible corrélation (ici, on assure juste des matchs différents)
+            if 2.50 <= total_odds <= 4.00:
                 combo_pronos = sample
                 break
 
@@ -127,10 +168,7 @@ async def generate_daily_pronos():
         else:
             prediction = p["claude"]["pari"]
 
-        # Value Bet : On ne garde que les valeurs positives pour le parieur
         value_bet = p["analysis"].get("value", 0)
-        if value_bet < 0:
-            value_bet = 0
 
         insert_prono({
             "match_id": f"{p['match'].get('id', random.randint(1000,9999))}_{prono_type}_{datetime.now().strftime('%H%M%S')}",
