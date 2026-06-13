@@ -135,7 +135,7 @@ Ne jamais promettre de gain.
 Ne jamais inventer des statistiques.
 Utiliser les informations Internet uniquement pour compléter l'analyse du marché.
 Les cotes restent la source principale de décision.
-Retourner uniquement du JSON valide. :::
+Retourner uniquement du JSON valide. :::"""
 
 async def get_claude_decision(home_team: str, away_team: str, match_data: Dict, analysis_data: Dict) -> Dict:
     if not client:
