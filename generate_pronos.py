@@ -38,17 +38,12 @@ async def generate_daily_pronos():
         h_stats, a_stats = await get_team_stats(home, away)
         analysis = full_analysis(match, h_stats, a_stats)
         
-        # Amélioration : Diversité des marchés (Priorité 1X2 sur Over/Under)
-        # Si Claude propose un Over/Under mais qu'un signal 1X2 est fort, on demande à Claude de privilégier le 1X2
-        pari_type = claude.get("pari", "")
-        if "Over" in pari_type or "Under" in pari_type:
-            # Si probabilité 1 ou 2 > 45%, on peut considérer que c'est un meilleur prono de diversité
-            if analysis["matrix"]["prob_home"] > 0.45 or analysis["matrix"]["prob_away"] > 0.45:
-                # On ne force pas, mais on garde en tête pour la sélection
-                pass
-
         # Appel Claude pour décision
         claude = await get_claude_decision(home, away, match, analysis)
+        
+        # Amélioration : Diversité des marchés (Priorité 1X2 sur Over/Under)
+        # On garde cette logique ici pour référence ou log, mais l'essentiel est fait lors de la sélection finale
+        pari_type = claude.get("pari", "")
         
         if claude.get("decision") == "VALIDE":
             # Data Integrity Check: Ensure real odds from API are present
