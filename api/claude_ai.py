@@ -32,12 +32,21 @@ Réponse JSON compacte uniquement. Aucun commentaire.
 "value_pct": 0.0
 }"""
 
-async def get_claude_decision(home_team: str, away_team: str, match_data: Dict, analysis_data: Dict) -> Dict:
+async def get_claude_decision(home_team: str, away_team: str, match_data: Dict, analysis_data: Dict, mode: str = "GENERAL") -> Dict:
     if not client:
         return {"decision": "REJETE", "raison": "Claude non configuré"}
 
-    # Compactage des données envoyées
-    user_content = f"Match: {home_team}-{away_team}. Data: {json.dumps(analysis_data)}"
+    # Contextualisation selon le mode
+    mode_instructions = {
+        "GRATUIT": "Analyse PRUDENTE. Recherche de fiabilité maximale pour une cote entre 1.40 et 2.00.",
+        "VIP": "Analyse VALUE BET. Recherche d'un avantage statistique pour une cote entre 1.40 et 2.00.",
+        "MONTANTE": "SÉCURITÉ ABSOLUE. Ne valide que si le risque est minimal (Cote cible 1.20-1.50).",
+        "SCORE_EXACT": "Analyse précise du score le plus probable via Poisson et contexte.",
+        "GENERAL": "Analyse globale de l'opportunité."
+    }
+    
+    context = mode_instructions.get(mode, mode_instructions["GENERAL"])
+    user_content = f"MODE: {mode}\nINSTRUCTION: {context}\nMatch: {home_team}-{away_team}. Data: {json.dumps(analysis_data)}"
 
     for attempt in range(3):
         try:
