@@ -229,6 +229,18 @@ def main():
     # Configuration du Scheduler
     scheduler = BackgroundScheduler(timezone="Europe/Paris")
     
+    # Tâche de TEST : S'exécute dans 3 minutes
+    from datetime import datetime, timedelta
+    test_time = datetime.now() + timedelta(minutes=3)
+    scheduler.add_job(
+        lambda: logger.info("🚀 TEST AUTOMATISATION : La tâche planifiée s'est exécutée avec succès !"),
+        trigger='date',
+        run_date=test_time,
+        id="test_job",
+        name="Tâche de test d'automatisation"
+    )
+    logger.info(f"🧪 Tâche de test programmée pour {test_time.strftime('%H:%M:%S')}")
+
     # Tâche 1 : Génération des pronos à 09h00
     scheduler.add_job(
         lambda: asyncio.run(generate_daily_pronos()),
