@@ -227,34 +227,31 @@ def main():
     t.start()
     logger.info("🌐 Dashboard démarré")
 
-    # Configuration du Scheduler
-    paris_tz = pytz.timezone("Europe/Paris")
-    scheduler = BackgroundScheduler(timezone=paris_tz)
+        # Configuration du Scheduler en UTC
+    scheduler = BackgroundScheduler(timezone=pytz.UTC)
     
-
-
-    # Tâche 1 : Génération des pronos à 09h00
+    # Tâche 1 : Génération des pronos à 09h00 UTC (10h00 au Cameroun)
     scheduler.add_job(
         lambda: asyncio.run(generate_daily_pronos()),
-        trigger=CronTrigger(hour=9, minute=0, timezone=paris_tz),
+        trigger=CronTrigger(hour=9, minute=0, timezone=pytz.UTC),
         id="generate_pronos",
         name="Génération quotidienne des pronostics",
         replace_existing=True,
-        misfire_grace_time=3600 # Tolérance d'une heure
+        misfire_grace_time=3600
     )
     
-    # Tâche 2 : Vérification des résultats à 11h00
+    # Tâche 2 : Vérification des résultats à 11h00 UTC (12h00 au Cameroun)
     scheduler.add_job(
         lambda: asyncio.run(update_results()),
-        trigger=CronTrigger(hour=11, minute=0, timezone=paris_tz),
+        trigger=CronTrigger(hour=11, minute=0, timezone=pytz.UTC),
         id="check_results",
         name="Vérification quotidienne des résultats",
         replace_existing=True,
-        misfire_grace_time=3600 # Tolérance d'une heure
+        misfire_grace_time=3600
     )
     
     scheduler.start()
-    logger.info("⏰ Scheduler démarré (09h00: Pronos, 11h00: Résultats)")
+    logger.info("⏰ Scheduler démarré en UTC (09h00: Pronos, 11h00: Résultats)")
 
     app = Application.builder().token(token).build()
 
