@@ -4,12 +4,13 @@ import logging
 import asyncio
 import re
 from typing import Dict, Optional, Tuple
-from anthropic import AsyncAnthropic
+from anthropic import AsyncAnthropic, APIStatusError
 
 logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL      = os.getenv("CLAUDE_MODEL", "claude-sonnet-3-5-haiku") # Using Haiku for cost efficiency
+# Rétablissement du modèle correct utilisé par l'utilisateur
+CLAUDE_MODEL      = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20240620") 
 client            = AsyncAnthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 
 # System Prompt pour une analyse unifiée et des décisions multi-catégories
@@ -93,7 +94,7 @@ Réponse JSON compacte uniquement. Aucun commentaire.
 
 async def get_claude_decision(home_team: str, away_team: str, match_data: Dict, analysis_data: Dict) -> Dict:
     if not client:
-        return {"global_quality_score": 0, "GRATUIT": {"decision": "REJETE", "raison_rejet": "Claude non configuré"}, "VIP": {"decision": "REJETE", "raison_rejet": "Claude non configuré"}, "MONTANTE": {"decision": "REJETE", "raison_rejet": "Claude non configuré"}, "SCORE_EXACT": {"decision": "REJETE", "raison_rejet": "Claude non configuré"}}
+        return _empty_decision("Claude non configuré")
 
     user_content = f"Match: {home_team} vs {away_team}. Données d'analyse complètes: {json.dumps(analysis_data)}"
 
@@ -101,14 +102,13 @@ async def get_claude_decision(home_team: str, away_team: str, match_data: Dict, 
         try:
             response = await client.messages.create(
                 model=CLAUDE_MODEL,
-                max_tokens=1000, # Augmenté pour la réponse multi-catégories
+                max_tokens=1000, 
                 temperature=0,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}]
             )
             
             raw_text = response.content[0].text.strip()
-            
             result = parse_claude_json(raw_text)
             if result:
                 logger.info(f"Claude analysis for {home_team} vs {away_team} received.")
@@ -116,14 +116,36 @@ async def get_claude_decision(home_team: str, away_team: str, match_data: Dict, 
             
             raise ValueError(f"Parsing failed for: {raw_text[:200]}...")
 
-        except Exception as e:
+        except APIStatusError as e:
+            # Gestion intelligente des erreurs API
+            if e.status_code == 404:
+                logger.error(f"Modèle Claude invalide ({CLAUDE_MODEL}). Arrêt immédiat des tentatives.")
+                return _empty_decision(f"Erreur Modèle: {CLAUDE_MODEL} non trouvé")
+            
+            if e.status_code == 401:
+                logger.error("Clé API Anthropic invalide.")
+                return _empty_decision("Erreur API Key")
+
             logger.error(f"Attempt {attempt+1} failed for {home_team} vs {away_team}: {e}")
-            if "rate_limit" in str(e).lower():
+            if e.status_code == 429: # Rate limit
                 await asyncio.sleep(5 * (attempt + 1))
             else:
                 await asyncio.sleep(1)
+        
+        except Exception as e:
+            logger.error(f"Unexpected error on attempt {attempt+1} for {home_team} vs {away_team}: {e}")
+            await asyncio.sleep(1)
 
-    return {"global_quality_score": 0, "GRATUIT": {"decision": "REJETE", "raison_rejet": "Claude API Error"}, "VIP": {"decision": "REJETE", "raison_rejet": "Claude API Error"}, "MONTANTE": {"decision": "REJETE", "raison_rejet": "Claude API Error"}, "SCORE_EXACT": {"decision": "REJETE", "raison_rejet": "Claude API Error"}}
+    return _empty_decision("Claude API Error après 3 tentatives")
+
+def _empty_decision(reason: str) -> Dict:
+    return {
+        "global_quality_score": 0, 
+        "GRATUIT": {"decision": "REJETE", "raison_rejet": reason}, 
+        "VIP": {"decision": "REJETE", "raison_rejet": reason}, 
+        "MONTANTE": {"decision": "REJETE", "raison_rejet": reason}, 
+        "SCORE_EXACT": {"decision": "REJETE", "raison_rejet": reason}
+    }
 
 def parse_claude_json(text: str) -> Optional[Dict]:
     """Parsing JSON ultra-robuste avec réparation de troncature."""
@@ -139,28 +161,22 @@ def parse_claude_json(text: str) -> Optional[Dict]:
         
         # Réparation de troncature (fermeture d'accolades et guillemets)
         if text.startswith("{") and not text.endswith("}"):
-            # Réparation plus robuste des structures imbriquées
-            # On ferme les guillemets ouverts
             if text.count('"') % 2 != 0:
                 text += '"'
             
-            # On ferme les accolades manquantes
             open_braces = text.count('{')
             close_braces = text.count('}')
             if open_braces > close_braces:
                 text += '}' * (open_braces - close_braces)
             
-            # On ferme les crochets manquants
             open_brackets = text.count('[')
             close_brackets = text.count(']')
             if open_brackets > close_brackets:
                 text += ']' * (open_brackets - close_brackets)
             
-        # Tentative de parsing direct
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            # Tentative via regex pour extraire le premier objet JSON valide
             match = re.search(r'\{.*\}', text, re.DOTALL)
             if match:
                 try:
@@ -168,7 +184,6 @@ def parse_claude_json(text: str) -> Optional[Dict]:
                 except:
                     pass
         
-        # Si toujours rien, logger la réponse brute pour debug
         logger.error(f"ÉCHEC PARSING JSON. Réponse brute: {text}")
         return None
     except Exception as e:
@@ -186,7 +201,7 @@ async def generate_simple_analysis(type_label: str, data: Dict) -> Tuple[Dict, D
     try:
         response = await client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=300, # Réduit pour économie
+            max_tokens=300, 
             temperature=0,
             system=prompt,
             messages=[{"role": "user", "content": f"Analyse {type_label}: {json.dumps(data)}"}]
