@@ -96,57 +96,42 @@ async def generate_daily_pronos():
 
     sorted_matches = sorted(analyzed_matches, key=score_match, reverse=True)
     
-    # A. Prono Gratuit (Le plus fiable)
+    # A. Prono Gratuit (Cote 1.40 - 2.00)
     free_prono_candidates = [m for m in sorted_matches if 1.40 <= m["claude"].get("cote", 0) <= 2.00]
+    free_prono = free_prono_candidates[0] if free_prono_candidates else None
     
-    # Prioriser les types de paris spécifiés
-    prioritized_free_pronos = []
-    for p in free_prono_candidates:
-        pari = p["claude"].get("pari", "")
-        if any(x in pari for x in ["Over 1.5", "Under 4.5", "Double Chance", "Draw No Bet", "Victoire simple favorite"]):
-            prioritized_free_pronos.append(p)
-            
-    free_prono = prioritized_free_pronos[0] if prioritized_free_pronos else (free_prono_candidates[0] if free_prono_candidates else None)
-    
-    # On retire le match gratuit des candidats pour les autres sections afin d'éviter les doublons
-    remaining_matches = [m for m in sorted_matches if m != free_prono]
-    
-    # B. Pronos VIP (3 à 5 matchs)
-    vip_candidates = [m for m in remaining_matches if m["claude"].get("confiance", 0) >= 3] # Confiance 3/5 = 60%
+    # B. Pronos VIP (3 à 5 matchs, Cote 1.40 - 2.00, Confiance >= 2)
+    # On peut réutiliser le match gratuit dans le VIP s'il n'y a pas assez de matchs
+    vip_candidates = [m for m in sorted_matches if 1.40 <= m["claude"].get("cote", 0) <= 2.00 and m["claude"].get("confiance", 0) >= 2]
     
     vip_pronos = []
     seen_matches = set()
     for p in vip_candidates:
-        match_identifier = f"{p["match"]["home_team"]}-{p["match"]["away_team"]}"
+        match_identifier = f"{p['match']['home_team']}-{p['match']['away_team']}"
         if match_identifier not in seen_matches and len(vip_pronos) < 5:
             vip_pronos.append(p)
             seen_matches.add(match_identifier)
-
-    # C. Combiné du jour (3 matchs, Cote totale [2.00 - 4.00])
+    
+    # C. Combiné du jour (3 matchs, Cote totale [2.50 - 4.00])
     combo_pronos = []
-    # On utilise les vip_candidates pour le combiné pour maintenir la qualité
-    if len(vip_candidates) >= 3:
-        for _ in range(50): # Tenter 50 fois de trouver un bon combiné
-            sample = random.sample(vip_candidates, 3)
+    if len(sorted_matches) >= 3:
+        # On essaie de combiner n'importe quels matchs valides pour atteindre la cote cible
+        for _ in range(100):
+            sample = random.sample(sorted_matches, 3)
             total_odds = 1.0
             for s in sample:
                 total_odds *= s["claude"].get("cote", 1.0)
-            # Vérifier la cote finale cible et la faible corrélation (ici, on assure juste des matchs différents)
             if 2.50 <= total_odds <= 4.00:
                 combo_pronos = sample
                 break
-
+    
     # D. Montante du jour (Cote [1.20 - 1.50])
-    montante_prono = None
-    montante_candidates = [m for m in remaining_matches if 1.20 <= m["claude"].get("cote", 0) <= 1.50]
-    if montante_candidates:
-        montante_prono = max(montante_candidates, key=lambda x: x["claude"].get("confiance", 0))
-
-    # E. Score Exact (Prob > 10%)
-    exact_score_prono = None
-    exact_candidates = [m for m in remaining_matches if m["analysis"]["matrix"]["best_score"] != "Non prédictible"]
-    if exact_candidates:
-        exact_score_prono = max(exact_candidates, key=lambda x: x["analysis"]["matrix"]["top_scores"][0]["prob"])
+    montante_candidates = [m for m in sorted_matches if 1.20 <= m["claude"].get("cote", 0) <= 1.50]
+    montante_prono = montante_candidates[0] if montante_candidates else None
+    
+    # E. Score Exact (Le match le plus "prédictible" selon Poisson)
+    exact_candidates = [m for m in sorted_matches if m["analysis"]["matrix"]["best_score"] != "Non prédictible"]
+    exact_score_prono = max(exact_candidates, key=lambda x: x["analysis"]["matrix"]["top_scores"][0]["prob"]) if exact_candidates else None
 
     # 4. Insertion avec labels compatibles Handlers
     
