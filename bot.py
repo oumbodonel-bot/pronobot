@@ -26,6 +26,11 @@ from handlers.admin import (
 )
 from handlers.stats import stats_public_handler, referral_handler
 from core.database import init_db, get_conn
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import asyncio
+from generate_pronos import generate_daily_pronos
+from api.check_results import update_results
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -220,6 +225,30 @@ def main():
     t = threading.Thread(target=run_dashboard, daemon=True)
     t.start()
     logger.info("🌐 Dashboard démarré")
+
+    # Configuration du Scheduler
+    scheduler = BackgroundScheduler(timezone="Europe/Paris")
+    
+    # Tâche 1 : Génération des pronos à 09h00
+    scheduler.add_job(
+        lambda: asyncio.run(generate_daily_pronos()),
+        trigger=CronTrigger(hour=9, minute=0),
+        id="generate_pronos",
+        name="Génération quotidienne des pronostics",
+        replace_existing=True
+    )
+    
+    # Tâche 2 : Vérification des résultats à 11h00
+    scheduler.add_job(
+        lambda: asyncio.run(update_results()),
+        trigger=CronTrigger(hour=11, minute=0),
+        id="check_results",
+        name="Vérification quotidienne des résultats",
+        replace_existing=True
+    )
+    
+    scheduler.start()
+    logger.info("⏰ Scheduler démarré (09h00: Pronos, 11h00: Résultats)")
 
     app = Application.builder().token(token).build()
 
