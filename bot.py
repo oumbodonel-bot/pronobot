@@ -231,18 +231,7 @@ def main():
     paris_tz = pytz.timezone("Europe/Paris")
     scheduler = BackgroundScheduler(timezone=paris_tz)
     
-    # Tâche de TEST : S'exécute dans 2 minutes (avec fuseau horaire explicite)
-    from datetime import datetime, timedelta
-    test_time = datetime.now(paris_tz) + timedelta(minutes=2)
-    scheduler.add_job(
-        lambda: logger.info("🚀 TEST AUTOMATISATION : La tâche planifiée s'est exécutée avec succès !"),
-        trigger='date',
-        run_date=test_time,
-        id="test_job",
-        name="Tâche de test d'automatisation",
-        misfire_grace_time=600 # Tolérance de 10 minutes
-    )
-    logger.info(f"🧪 Tâche de test programmée pour {test_time.strftime('%H:%M:%S')}")
+
 
     # Tâche 1 : Génération des pronos à 09h00
     scheduler.add_job(
