@@ -9,7 +9,7 @@ from typing import List, Dict, Optional
 from api.odds_api import get_all_leagues_odds
 from api.claude_ai import get_claude_decision, generate_simple_analysis
 from core.math_engine import full_analysis
-from core.database import insert_prono, init_db, get_team_stats
+from core.database import insert_prono, init_db
 
 # Configuration des logs
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,89 +31,95 @@ async def generate_daily_pronos():
     # 2. Analyse Multi-Mode et Stockage
     stats = {
         "total_matches": len(all_matches),
-        "validated": {"GRATUIT": 0, "VIP": 0, "MONTANTE": 0, "SCORE_EXACT": 0},
-        "rejected": {"GRATUIT": 0, "VIP": 0, "MONTANTE": 0, "SCORE_EXACT": 0},
+        "validated": {"GRATUIT": 0, "VIP": 0, "MONTANTE": 0, "SCORE_EXACT": 0, "COMBINE": 0},
+        "rejected": {"GRATUIT": 0, "VIP": 0, "MONTANTE": 0, "SCORE_EXACT": 0, "COMBINE": 0},
         "rejection_reasons": {"Claude": 0, "Cote": 0, "Confiance": 0, "Doublon": 0, "Metier": 0}
     }
 
     categories = {
-        "free": {"mode": "GRATUIT", "matches": [], "min_cote": 1.40, "max_cote": 2.00, "min_confiance": 2},
-        "vip": {"mode": "VIP", "matches": [], "min_cote": 1.40, "max_cote": 2.00, "min_confiance": 2},
-        "montante": {"mode": "MONTANTE", "matches": [], "min_cote": 1.20, "max_cote": 1.50, "min_confiance": 3},
-        "exact_score": {"mode": "SCORE_EXACT", "matches": [], "min_cote": 1.01, "max_cote": 100.0, "min_confiance": 1}
+        "GRATUIT": {"matches": [], "min_cote": 1.40, "max_cote": 2.00, "min_confiance": 2},
+        "VIP": {"matches": [], "min_cote": 1.40, "max_cote": 2.00, "min_confiance": 2},
+        "MONTANTE": {"matches": [], "min_cote": 1.20, "max_cote": 1.50, "min_confiance": 3},
+        "SCORE_EXACT": {"matches": [], "min_cote": 1.01, "max_cote": 100.0, "min_confiance": 1}
     }
     
+    all_claude_decisions = {}
+
     for match in all_matches:
         home, away = match["home_team"], match["away_team"]
-        h_stats, a_stats = await get_team_stats(home, away)
-        analysis = full_analysis(match, h_stats, a_stats)
+        logger.info(f"Analyse globale du match: {home} vs {away}")
+        analysis = full_analysis(match, None, None)
         
-        for cat_id, config in categories.items():
-            mode_name = config["mode"]
-            logger.info(f"[{mode_name}] Analyse: {home} vs {away}")
+        # Appel Claude unique pour toutes les catégories
+        claude_response = await get_claude_decision(home, away, match, analysis)
+        all_claude_decisions[f"{home}-{away}"] = claude_response
+        
+        quality_score = claude_response.get("global_quality_score", 0)
+        logger.info(f"  Score de qualité global: {quality_score}/100")
+
+        for mode_name, config in categories.items():
+            claude_decision_for_mode = claude_response.get(mode_name, {})
             
-            # Appel Claude avec le mode spécifique
-            claude = await get_claude_decision(home, away, match, analysis, mode=mode_name)
-            
-            # Logs détaillés demandés
-            decision = claude.get("decision", "REJETE")
-            pari = claude.get("marche_choisi", claude.get("pronostic", "N/A"))
-            cote = claude.get("cote_choisie", 0)
-            conf = claude.get("confiance", 0)
-            
+            decision = claude_decision_for_mode.get("decision", "REJETE")
+            pari = claude_decision_for_mode.get("marche_choisi", claude_decision_for_mode.get("pronostic", "N/A"))
+            cote = claude_decision_for_mode.get("cote_choisie", 0)
+            conf = claude_decision_for_mode.get("confiance", 0)
+            value_pct = claude_decision_for_mode.get("value_pct", 0)
+            raison_rejet = claude_decision_for_mode.get("raison_rejet", "Sans raison")
+
             # 1. Rejet par Claude
             if decision != "VALIDE":
-                reason = claude.get('raison_rejet', 'Sans raison')
-                logger.info(f"  ❌ DÉCISION : {decision} | RAISON : {reason}")
+                logger.info(f"  ❌ {mode_name} - DÉCISION : {decision} | RAISON : {raison_rejet}")
                 stats["rejected"][mode_name] += 1
                 stats["rejection_reasons"]["Claude"] += 1
                 continue
                 
             # Mapping pour compatibilité
-            claude["pari"] = pari
-            claude["cote"] = cote
+            claude_decision_for_mode["pari"] = pari
+            claude_decision_for_mode["cote"] = cote
             
             # 2. Rejet par filtre de cote
             if not (config["min_cote"] <= cote <= config["max_cote"]):
-                logger.info(f"  ❌ REJET COTE : {cote} hors limites [{config['min_cote']}-{config['max_cote']}]")
+                logger.info(f"  ❌ {mode_name} - REJET COTE : {cote} hors limites [{config['min_cote']}-{config['max_cote']}]")
                 stats["rejected"][mode_name] += 1
                 stats["rejection_reasons"]["Cote"] += 1
                 continue
                 
             # 3. Rejet par filtre de confiance
             if conf < config["min_confiance"]:
-                logger.info(f"  ❌ REJET CONFIANCE : {conf} < {config['min_confiance']}")
+                logger.info(f"  ❌ {mode_name} - REJET CONFIANCE : {conf} < {config['min_confiance']}")
                 stats["rejected"][mode_name] += 1
                 stats["rejection_reasons"]["Confiance"] += 1
                 continue
-                
+            
             # Match validé pour cette catégorie
-            config["matches"].append({
+            categories[mode_name]["matches"].append({
                 "match": match,
                 "analysis": analysis,
-                "claude": claude,
-                "type": pari
+                "claude": claude_decision_for_mode,
+                "type": pari,
+                "quality_score": quality_score
             })
             stats["validated"][mode_name] += 1
-            logger.info(f"  ✅ VALIDE | Marché: {pari} | Cote: {cote} | Confiance: {conf}")
+            logger.info(f"  ✅ {mode_name} - VALIDE | Marché: {pari} | Cote: {cote} | Confiance: {conf} | Value: {value_pct}%")
             
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.1)
 
     # 3. Sélection Finale par Catégorie
     
     # A. Prono Gratuit (Le meilleur des candidats free)
     free_prono = None
-    if categories["free"]["matches"]:
-        # Tri par confiance puis value
-        categories["free"]["matches"].sort(key=lambda x: (x["claude"]["confiance"], x["claude"].get("value_pct", 0)), reverse=True)
-        free_prono = categories["free"]["matches"][0]
+    if categories["GRATUIT"]["matches"]:
+        # Tri par score de qualité, puis confiance, puis value
+        categories["GRATUIT"]["matches"].sort(key=lambda x: (x["quality_score"], x["claude"]["confiance"], x["claude"].get("value_pct", 0)), reverse=True)
+        free_prono = categories["GRATUIT"]["matches"][0]
     
     # B. Pronos VIP (Top 5 des candidats VIP)
     vip_pronos = []
-    if categories["vip"]["matches"]:
-        categories["vip"]["matches"].sort(key=lambda x: (x["claude"]["confiance"], x["claude"].get("value_pct", 0)), reverse=True)
+    if categories["VIP"]["matches"]:
+        categories["VIP"]["matches"].sort(key=lambda x: (x["quality_score"], x["claude"]["confiance"], x["claude"].get("value_pct", 0)), reverse=True)
         seen_matches = set()
-        for p in categories["vip"]["matches"]:
+        for p in categories["VIP"]["matches"]:
             m_id = f"{p['match']['home_team']}-{p['match']['away_team']}"
             if m_id not in seen_matches and len(vip_pronos) < 5:
                 vip_pronos.append(p)
@@ -123,56 +129,85 @@ async def generate_daily_pronos():
     
     # C. Combiné (3 matchs parmi VIP ou Free pour assurer la cote 2.00-4.00)
     combo_pronos = []
-    all_valid = categories["vip"]["matches"] + categories["free"]["matches"]
-    if len(all_valid) >= 3:
-        for _ in range(100):
-            sample = random.sample(all_valid, 3)
-            # Éviter doublons de matchs dans le combiné
-            if len(set(f"{m['match']['home_team']}-{m['match']['away_team']}" for m in sample)) < 3:
-                continue
+    # On prend tous les matchs validés VIP et GRATUIT
+    all_valid_for_combo = categories["VIP"]["matches"] + categories["GRATUIT"]["matches"]
+    
+    # Supprimer les doublons de matchs (un même match peut être dans VIP et GRATUIT)
+    unique_matches_for_combo = {}
+    for p in all_valid_for_combo:
+        m_id = f"{p['match']['home_team']}-{p['match']['away_team']}"
+        if m_id not in unique_matches_for_combo or p["quality_score"] > unique_matches_for_combo[m_id]["quality_score"]:
+            unique_matches_for_combo[m_id] = p
+    
+    candidate_list = list(unique_matches_for_combo.values())
+    
+    if len(candidate_list) >= 3:
+        # Essayer de trouver une combinaison optimale
+        for _ in range(200):
+            sample = random.sample(candidate_list, 3)
             total_odds = 1.0
             for s in sample:
                 total_odds *= s["claude"]["cote"]
             if 2.00 <= total_odds <= 4.00:
                 combo_pronos = sample
+                stats["validated"]["COMBINE"] += 1
                 break
+        
+        # Si pas trouvé par hasard, on prend les 3 meilleurs par score de qualité et on espère que la cote passe
         if not combo_pronos:
-            logger.info("  ❌ REJET METIER COMBINE : Aucune combinaison de cote 2.00-4.00 trouvée")
+            candidate_list.sort(key=lambda x: x["quality_score"], reverse=True)
+            sample = candidate_list[:3]
+            total_odds = 1.0
+            for s in sample:
+                total_odds *= s["claude"]["cote"]
+            if 1.8 <= total_odds <= 5.0: # Plus large si pas de combo parfait
+                combo_pronos = sample
+                stats["validated"]["COMBINE"] += 1
+                logger.info(f"  ⚠️ Combiné forcé avec cote {total_odds:.2f}")
+
+        if not combo_pronos:
+            logger.info("  ❌ REJET METIER COMBINE : Aucune combinaison de cote acceptable trouvée")
+            stats["rejected"]["COMBINE"] += 1
             stats["rejection_reasons"]["Metier"] += 1
     
     # D. Montante (Sécurité absolue)
     montante_prono = None
-    if categories["montante"]["matches"]:
-        categories["montante"]["matches"].sort(key=lambda x: x["claude"]["confiance"], reverse=True)
-        montante_prono = categories["montante"]["matches"][0]
+    if categories["MONTANTE"]["matches"]:
+        categories["MONTANTE"]["matches"].sort(key=lambda x: (x["claude"]["confiance"], x["quality_score"]), reverse=True)
+        montante_prono = categories["MONTANTE"]["matches"][0]
     
     # E. Score Exact
     exact_score_prono = None
-    if categories["exact_score"]["matches"]:
-        # Le plus probable selon Poisson
-        exact_score_prono = max(categories["exact_score"]["matches"], key=lambda x: x["analysis"]["matrix"]["top_scores"][0]["prob"])
+    if categories["SCORE_EXACT"]["matches"]:
+        # Le plus probable selon Poisson ou meilleur score de qualité
+        categories["SCORE_EXACT"]["matches"].sort(key=lambda x: (x["analysis"]["matrix"]["top_scores"][0]["prob"], x["quality_score"]), reverse=True)
+        exact_score_prono = categories["SCORE_EXACT"]["matches"][0]
 
     # 4. Insertion avec labels compatibles Handlers
     
     async def process_and_insert(p, prono_type, plan):
-        ana_fr, ana_en = await generate_simple_analysis(p["type"], p["claude"])
+        match_key = f"{p['match']['home_team']}-{p['match']['away_team']}"
+        claude_full_decision = all_claude_decisions.get(match_key, {})
+        # Pour le combiné, on utilise la décision VIP ou GRATUIT associée au match choisi
+        mode_for_analysis = prono_type if prono_type != "COMBINE" else ("VIP" if p in categories["VIP"]["matches"] else "GRATUIT")
+        claude_specific_decision = claude_full_decision.get(mode_for_analysis, {})
+
+        ana_fr, ana_en = await generate_simple_analysis(p["type"], claude_specific_decision)
         
-        # UTC Time handling for consistency
         match_dt = p["match"]["match_datetime"]
         if match_dt.tzinfo is None:
             match_dt = match_dt.replace(tzinfo=timedelta(hours=0))
             
         revealed_at = match_dt - timedelta(hours=1)
 
-        # Correction pour le Score Exact : utiliser la cote estimée par Poisson
         odds = p["claude"]["cote"]
-        if prono_type == "exact_score":
+        if prono_type == "SCORE_EXACT":
             odds = p["analysis"]["matrix"].get("best_score_odds", 7.0)
             prediction = p["analysis"]["matrix"].get("best_score", "1-1")
         else:
             prediction = p["claude"]["pari"]
 
-        value_bet = p["analysis"].get("value", 0)
+        value_bet = p["claude"].get("value_pct", 0)
 
         insert_prono({
             "match_id": f"{p['match'].get('id', random.randint(1000,9999))}_{prono_type}_{datetime.now().strftime('%H%M%S')}",
@@ -182,7 +217,7 @@ async def generate_daily_pronos():
             "match_date": match_dt.date(),
             "match_time": match_dt.strftime("%H:%M:%S"),
             "revealed_at": revealed_at,
-            "prono_type": prono_type,
+            "prono_type": prono_type.lower() if prono_type != "COMBINE" else "combined",
             "prediction": prediction,
             "confidence": p["claude"]["confiance"],
             "odds": odds,
@@ -195,21 +230,18 @@ async def generate_daily_pronos():
         })
 
     # Logique d'insertion par section
-    # Gratuit
     if free_prono:
-        await process_and_insert(free_prono, "free", "free")
-        logger.info(f"✅ Section Gratuit : {free_prono['match']['home_team']}")
+        await process_and_insert(free_prono, "GRATUIT", "free")
+        logger.info(f"✅ Section Gratuit : {free_prono['match']['home_team']} vs {free_prono['match']['away_team']}")
     else:
         logger.info("❌ Section Gratuit : Section indisponible aujourd'hui")
 
-    # VIP (On insère les VIP pronos avec plan 'vip')
-    # On évite d'insérer des doublons de matchs dans la section VIP elle-même
     seen_vip = set()
     vip_count = 0
     for p in vip_pronos:
         m_id = f"{p['match']['home_team']}_{p['match']['away_team']}"
         if m_id not in seen_vip:
-            await process_and_insert(p, "vip", "vip")
+            await process_and_insert(p, "VIP", "vip")
             seen_vip.add(m_id)
             vip_count += 1
     if vip_count > 0:
@@ -217,26 +249,22 @@ async def generate_daily_pronos():
     else:
         logger.info("❌ Section VIP : Section indisponible aujourd'hui")
 
-    # Combiné
-    # On marque spécifiquement les matchs du combiné pour que le handler les retrouve sans ambiguïté
     if combo_pronos:
         for p in combo_pronos:
-            await process_and_insert(p, "combined", "vip")
-        logger.info(f"✅ Section Combiné : 3 matchs insérés")
+            await process_and_insert(p, "COMBINE", "vip")
+        logger.info(f"✅ Section Combiné : {len(combo_pronos)} matchs insérés")
     else:
         logger.info("❌ Section Combiné : Section indisponible aujourd'hui")
 
-    # Montante
     if montante_prono:
-        await process_and_insert(montante_prono, "montante", "vip")
-        logger.info(f"✅ Section Montante : {montante_prono['match']['home_team']}")
+        await process_and_insert(montante_prono, "MONTANTE", "vip")
+        logger.info(f"✅ Section Montante : {montante_prono['match']['home_team']} vs {montante_prono['match']['away_team']}")
     else:
         logger.info("❌ Section Montante : Section indisponible aujourd'hui")
 
-    # Score Exact
     if exact_score_prono:
-        await process_and_insert(exact_score_prono, "exact_score", "vip")
-        logger.info(f"✅ Section Score Exact : {exact_score_prono['match']['home_team']}")
+        await process_and_insert(exact_score_prono, "SCORE_EXACT", "vip")
+        logger.info(f"✅ Section Score Exact : {exact_score_prono['match']['home_team']} vs {exact_score_prono['match']['away_team']}")
     else:
         logger.info("❌ Section Score Exact : Section indisponible aujourd'hui")
 

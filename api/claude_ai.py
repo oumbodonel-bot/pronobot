@@ -9,50 +9,99 @@ from anthropic import AsyncAnthropic
 logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL      = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+CLAUDE_MODEL      = os.getenv("CLAUDE_MODEL", "claude-sonnet-3-5-haiku") # Using Haiku for cost efficiency
 client            = AsyncAnthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 
-# System Prompt ultra-compact et pro-validation
+# System Prompt pour une analyse unifiée et des décisions multi-catégories
 SYSTEM_PROMPT = """Tu es l'IA experte de "EliteOddsClub", un service de pronostics professionnels.
-Ta mission : Identifier les opportunités de pari les plus cohérentes.
-──────────────────────────── RÈGLES ────────────────────────────
-1. NE REJETTE PAS systématiquement. Si les cotes sont logiques et les stats Poisson cohérentes, VALIDE le match.
-2. CONFIANCE : 1=Faible, 2=Modérée, 3=Élevée, 4=Très élevée.
-3. VALUE : probabilité_estimee - probabilité_implicite. Même une value de 0% ou légèrement négative est VALIDABLE si le favori est solide.
-4. MARCHÉS : Privilégie 1X2, Double Chance, Over/Under 2.5, Draw No Bet.
-──────────────────────────── DIRECTIVES ────────────────────────────
+Ta mission : Analyser un match de football en profondeur et proposer des pronostics pour différentes catégories, en optimisant la fiabilité et la rentabilité.
+
+──────────────────────────── RÈGLES GÉNÉRALES ────────────────────────────
+1. ANALYSE UNIQUE: Effectue une analyse globale du match. Ne réévalue pas le match pour chaque catégorie.
+2. SCORE DE QUALITÉ GLOBAL: Attribue un score de qualité global au match (0-100) basé sur la fiabilité des données, la cohérence des cotes, et le potentiel d'opportunités.
+3. CONFIANCE: 1=Faible, 2=Modérée, 3=Élevée, 4=Très élevée.
+4. VALUE: probabilité_estimee - probabilité_implicite. Une value légèrement négative est acceptable si d'autres indicateurs sont favorables.
+5. MARCHÉS: Privilégie 1X2, Double Chance, Over/Under 2.5, Draw No Bet, BTTS.
+6. COHÉRENCE: Les pronostics doivent être cohérents avec l'analyse globale et les spécificités de chaque catégorie.
+
+──────────────────────────── DIRECTIVES PAR CATÉGORIE ────────────────────────────
+
+GRATUIT (Cote cible: 1.40-2.00):
+- Privilégie la fiabilité maximale.
+- Accepte une value légèrement négative (jusqu'à -2% si la confiance est élevée et le signal Pinnacle est au moins MODERE).
+- Ne rejette que les matchs réellement dangereux ou incohérents (ex: données contradictoires, cotes illogiques, edge Pinnacle très négatif).
+
+VIP (Cote cible: 1.40-2.00):
+- Recherche la meilleure opportunité disponible.
+- Préfère une value positive quand elle existe.
+- Peut accepter une value légèrement négative (jusqu'à -1% si la confiance est très élevée et le signal Pinnacle est FORT) si les autres indicateurs (confiance, signal Pinnacle, alignement marché) sont favorables.
+
+MONTANTE (Cote cible: 1.20-1.50):
+- Reste la seule catégorie très stricte.
+- Sécurité maximale obligatoire. Exige une value positive ou neutre (min 0%) et une confiance de 3 ou 4.
+- Rejet autorisé si aucun marché sûr n'existe.
+
+SCORE_EXACT (Cote cible: 1.01-100.0):
+- Analyse précise du score le plus probable via Poisson et contexte.
+- La confiance est basée sur la probabilité du score exact et la cohérence générale du match.
+
+COMBINÉ (Cote cible: 2.00-4.00):
+- N'est PAS une catégorie à analyser directement par Claude. Il sera construit avec les meilleurs matchs validés GRATUIT et VIP.
+- Ne pas exiger une value positive sur les 3 sélections du combiné (cette règle sera gérée par le code Python).
+
+──────────────────────────── FORMAT DE RÉPONSE JSON ────────────────────────────
 Réponse JSON compacte uniquement. Aucun commentaire.
 {
-"decision": "VALIDE/REJETE",
-"raison_rejet": "Si rejeté, max 1 phrase",
-"marche_choisi": "Nom du marché",
-"pronostic": "Sélection précise",
-"cote_choisie": 0.00,
-"confiance": 1-4,
-"value_pct": 0.0
+  "global_quality_score": 0-100, // Score global de qualité du match
+  "GRATUIT": {
+    "decision": "VALIDE/REJETE",
+    "raison_rejet": "Si rejeté, max 1 phrase",
+    "marche_choisi": "Nom du marché",
+    "pronostic": "Sélection précise",
+    "cote_choisie": 0.00,
+    "confiance": 1-4,
+    "value_pct": 0.0
+  },
+  "VIP": {
+    "decision": "VALIDE/REJETE",
+    "raison_rejet": "Si rejeté, max 1 phrase",
+    "marche_choisi": "Nom du marché",
+    "pronostic": "Sélection précise",
+    "cote_choisie": 0.00,
+    "confiance": 1-4,
+    "value_pct": 0.0
+  },
+  "MONTANTE": {
+    "decision": "VALIDE/REJETE",
+    "raison_rejet": "Si rejeté, max 1 phrase",
+    "marche_choisi": "Nom du marché",
+    "pronostic": "Sélection précise",
+    "cote_choisie": 0.00,
+    "confiance": 1-4,
+    "value_pct": 0.0
+  },
+  "SCORE_EXACT": {
+    "decision": "VALIDE/REJETE",
+    "raison_rejet": "Si rejeté, max 1 phrase",
+    "marche_choisi": "Nom du marché",
+    "pronostic": "Sélection précise",
+    "cote_choisie": 0.00,
+    "confiance": 1-4,
+    "value_pct": 0.0
+  }
 }"""
 
-async def get_claude_decision(home_team: str, away_team: str, match_data: Dict, analysis_data: Dict, mode: str = "GENERAL") -> Dict:
+async def get_claude_decision(home_team: str, away_team: str, match_data: Dict, analysis_data: Dict) -> Dict:
     if not client:
-        return {"decision": "REJETE", "raison": "Claude non configuré"}
+        return {"global_quality_score": 0, "GRATUIT": {"decision": "REJETE", "raison_rejet": "Claude non configuré"}, "VIP": {"decision": "REJETE", "raison_rejet": "Claude non configuré"}, "MONTANTE": {"decision": "REJETE", "raison_rejet": "Claude non configuré"}, "SCORE_EXACT": {"decision": "REJETE", "raison_rejet": "Claude non configuré"}}
 
-    # Contextualisation selon le mode
-    mode_instructions = {
-        "GRATUIT": "Analyse PRUDENTE. Recherche de fiabilité maximale pour une cote entre 1.40 et 2.00.",
-        "VIP": "Analyse VALUE BET. Recherche d'un avantage statistique pour une cote entre 1.40 et 2.00.",
-        "MONTANTE": "SÉCURITÉ ABSOLUE. Ne valide que si le risque est minimal (Cote cible 1.20-1.50).",
-        "SCORE_EXACT": "Analyse précise du score le plus probable via Poisson et contexte.",
-        "GENERAL": "Analyse globale de l'opportunité."
-    }
-    
-    context = mode_instructions.get(mode, mode_instructions["GENERAL"])
-    user_content = f"MODE: {mode}\nINSTRUCTION: {context}\nMatch: {home_team}-{away_team}. Data: {json.dumps(analysis_data)}"
+    user_content = f"Match: {home_team} vs {away_team}. Données d'analyse complètes: {json.dumps(analysis_data)}"
 
     for attempt in range(3):
         try:
             response = await client.messages.create(
                 model=CLAUDE_MODEL,
-                max_tokens=300, # Réduit pour économie
+                max_tokens=1000, # Augmenté pour la réponse multi-catégories
                 temperature=0,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}]
@@ -60,22 +109,21 @@ async def get_claude_decision(home_team: str, away_team: str, match_data: Dict, 
             
             raw_text = response.content[0].text.strip()
             
-            # Nettoyage et extraction JSON
             result = parse_claude_json(raw_text)
             if result:
-                logger.info(f"Claude decision for {home_team}: {result.get('decision')}")
+                logger.info(f"Claude analysis for {home_team} vs {away_team} received.")
                 return result
             
-            raise ValueError(f"Parsing failed for: {raw_text[:100]}...")
+            raise ValueError(f"Parsing failed for: {raw_text[:200]}...")
 
         except Exception as e:
-            logger.error(f"Attempt {attempt+1} failed for {home_team}: {e}")
+            logger.error(f"Attempt {attempt+1} failed for {home_team} vs {away_team}: {e}")
             if "rate_limit" in str(e).lower():
                 await asyncio.sleep(5 * (attempt + 1))
             else:
                 await asyncio.sleep(1)
 
-    return {"decision": "REJETE", "raison": "Claude API Error"}
+    return {"global_quality_score": 0, "GRATUIT": {"decision": "REJETE", "raison_rejet": "Claude API Error"}, "VIP": {"decision": "REJETE", "raison_rejet": "Claude API Error"}, "MONTANTE": {"decision": "REJETE", "raison_rejet": "Claude API Error"}, "SCORE_EXACT": {"decision": "REJETE", "raison_rejet": "Claude API Error"}}
 
 def parse_claude_json(text: str) -> Optional[Dict]:
     """Parsing JSON ultra-robuste avec réparation de troncature."""
