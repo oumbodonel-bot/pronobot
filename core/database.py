@@ -396,7 +396,7 @@ def get_performance_stats(days: int = 30):
     cur.close()
     conn.close()
     
-    res = dict(stats)
+    res = dict(stats) if stats else {"total": 0, "correct": 0, "wrong": 0, "avg_win_odds": 0}
     res["streak"] = streak
     res["streak_type"] = streak_type
     return res
